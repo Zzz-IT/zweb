@@ -270,8 +270,9 @@ class BrowserActivity : AppCompatActivity() {
 
         runOnUiThread {
             val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
-            if (!tab.sniffedMediaList.contains(rawUrl)) {
-                tab.sniffedMediaList.add(rawUrl)
+            val entry = "$type: $rawUrl"
+            if (!tab.sniffedMediaList.contains(entry)) {
+                tab.sniffedMediaList.add(entry)
             }
         }
     }
@@ -641,6 +642,32 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
+    private fun diagnoseVideoTakeover() {
+        val wv = getActiveWebView() ?: return
+        wv.evaluateJavascript("JSON.stringify(NativeVideo.diagnose())") { raw ->
+            val text = raw
+                ?.removePrefix("\"")
+                ?.removeSuffix("\"")
+                ?.replace("\\\"", "\"")
+                ?.replace("\\\\", "\\")
+                ?: "无诊断结果"
+            showDiagnosisDialog(text)
+        }
+    }
+
+    private fun showDiagnosisDialog(text: String) {
+        BottomSheetDialog(this).apply {
+            val tv = TextView(this@BrowserActivity).apply {
+                setTextIsSelectable(true)
+                this.text = text
+                setPadding(32, 32, 32, 32)
+                textSize = 12f
+            }
+            setContentView(tv)
+            show()
+        }
+    }
+
     @SuppressLint("SetTextI18n")
     private fun showToolMenu() {
         val dialog = BottomSheetDialog(this)
@@ -666,6 +693,10 @@ class BrowserActivity : AppCompatActivity() {
         }
         view.findViewById<View>(R.id.tool_force_video)?.setOnClickListener {
             forceVideoTakeover()
+            dialog.dismiss()
+        }
+        view.findViewById<View>(R.id.tool_video_diagnose)?.setOnClickListener {
+            diagnoseVideoTakeover()
             dialog.dismiss()
         }
 

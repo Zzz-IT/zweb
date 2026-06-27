@@ -284,7 +284,81 @@ object VideoJs {
     return bestScore > 0 ? best : null;
   }
 
+  function diagnoseVideos() {
+    const videos = Array.from(document.querySelectorAll("video"));
+    const items = videos.map(function (video, index) {
+      const rect = video.getBoundingClientRect();
+      const style = window.getComputedStyle(video);
+      return {
+        index: index,
+        id: getVideoId(video),
+        isActive: video === activeVideo,
+        isPendingGesture: video === pendingGestureVideo,
+        isLastPlay: video === lastPlayVideo,
+        paused: Boolean(video.paused),
+        currentTime: Number(video.currentTime || 0),
+        duration: Number(video.duration || 0),
+        readyState: Number(video.readyState || 0),
+        networkState: Number(video.networkState || 0),
+        playbackRate: Number(video.playbackRate || 1),
+        currentSrc: video.currentSrc || "",
+        src: video.src || "",
+        width: Number(video.videoWidth || 0),
+        height: Number(video.videoHeight || 0),
+        rectWidth: Number(rect.width || 0),
+        rectHeight: Number(rect.height || 0),
+        rectLeft: Number(rect.left || 0),
+        rectTop: Number(rect.top || 0),
+        display: style.display || "",
+        visibility: style.visibility || "",
+        opacity: style.opacity || "",
+        score: videoScore(video)
+      };
+    });
+
+    const iframes = Array.from(document.querySelectorAll("iframe")).map(function (iframe, index) {
+      const rect = iframe.getBoundingClientRect();
+      let sameOrigin = false;
+      let childVideoCount = -1;
+      try {
+        const doc = iframe.contentWindow && iframe.contentWindow.document;
+        if (doc) {
+          sameOrigin = true;
+          childVideoCount = doc.querySelectorAll("video").length;
+        }
+      } catch (e) {
+        sameOrigin = false;
+        childVideoCount = -1;
+      }
+      return {
+        index: index,
+        src: iframe.src || "",
+        rectWidth: Number(rect.width || 0),
+        rectHeight: Number(rect.height || 0),
+        sameOrigin: sameOrigin,
+        childVideoCount: childVideoCount
+      };
+    });
+
+    return {
+      version: window.__ZWEB_VIDEO_VERSION__ || "",
+      pageUrl: location.href,
+      title: document.title || "",
+      activeVideoId: activeVideo ? getVideoId(activeVideo) : "",
+      pendingGestureVideoId: pendingGestureVideo ? getVideoId(pendingGestureVideo) : "",
+      lastPlayVideoId: lastPlayVideo ? getVideoId(lastPlayVideo) : "",
+      lastGestureAgeMs: lastGesture ? Date.now() - lastGesture.time : -1,
+      videoCount: videos.length,
+      iframeCount: iframes.length,
+      videos: items,
+      iframes: iframes
+    };
+  }
+
   window.NativeVideo = {
+    diagnose: function () {
+      return diagnoseVideos();
+    },
     rescan: function () {
       scanVideos();
       return !!(activeVideo || pickActuallyPlayingVideo() || pickBestVideo());
