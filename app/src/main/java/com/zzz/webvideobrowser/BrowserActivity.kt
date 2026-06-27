@@ -29,6 +29,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowInsetsControllerCompat
 import java.net.URLEncoder
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -37,7 +39,15 @@ class BrowserActivity : AppCompatActivity() {
 
     private lateinit var viewModel: BrowserViewModel
     private lateinit var rootContainer: FrameLayout
-    private lateinit var webView: WebView
+    
+    // 多标签页容器和状态
+    private lateinit var webViewContainer: FrameLayout
+    private val tabs = mutableListOf<TabInfo>()
+    private var activeTabIndex = -1
+    
+    data class TabInfo(val webView: WebView, var title: String, var url: String, var themeColor: Int? = null)
+    private fun getActiveWebView(): WebView? = if (activeTabIndex in tabs.indices) tabs[activeTabIndex].webView else null
+
     private lateinit var homeLayer: View
     private lateinit var bottomBar: View
     private lateinit var addressTouchArea: View
@@ -65,6 +75,10 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var txtFullTime: TextView
     private lateinit var seekFull: SeekBar
 
+    private lateinit var floatingGestureLayer: View
+    private lateinit var fullscreenGestureLayer: View
+
+
     private var currentDuration = 0.0
     private var currentPosition = 0.0
     private var isPaused = true
@@ -86,7 +100,10 @@ class BrowserActivity : AppCompatActivity() {
 
         bindViews()
         setupViewModel()
-        setupWebView()
+        
+        // 初始创建一个空白页
+        createNewTab("about:blank")
+        
         setupHome()
         setupBottomBar()
         setupPlayerControls()
@@ -107,7 +124,7 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun bindViews() {
         rootContainer = findViewById(R.id.rootContainer)
-        webView = findViewById(R.id.webView)
+        webViewContainer = findViewById(R.id.webViewContainer)
         homeLayer = findViewById(R.id.homeLayer)
         bottomBar = findViewById(R.id.bottomBar)
         addressTouchArea = findViewById(R.id.addressTouchArea)
@@ -134,13 +151,17 @@ class BrowserActivity : AppCompatActivity() {
         btnOrientation = findViewById(R.id.btnOrientation)
         txtFullTime = findViewById(R.id.txtFullTime)
         seekFull = findViewById(R.id.seekFull)
+
+        floatingGestureLayer = findViewById(R.id.floatingGestureLayer)
+        fullscreenGestureLayer = findViewById(R.id.fullscreenGestureLayer)
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun setupWebView() {
-        webView.setBackgroundColor(Color.WHITE)
+    private fun createWebView(): WebView {
+        val wv = WebView(this)
+        wv.setBackgroundColor(Color.WHITE)
 
-        webView.settings.apply {
+        wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
@@ -154,28 +175,99 @@ class BrowserActivity : AppCompatActivity() {
             userAgentString = userAgentString + " WebVideoBrowser/1.0"
         }
 
-        webView.addJavascriptInterface(VideoBridge(), "AndroidVideo")
+        wv.addJavascriptInterface(VideoBridge(wv), "AndroidVideo")
 
-        webView.webViewClient = object : WebViewClient() {
+        wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
-                urlInput.setText(url)
-                injectVideoScript()
+                if (getActiveWebView() == view) {
+                    urlInput.setText(url)
+                }
+                val tab = tabs.find { it.webView == view }
+                if (tab != null) {
+                    tab.url = url
+                    tab.title = view.title ?: url
+                }
+                view.evaluateJavascript(VideoJs.SCRIPT, null)
             }
         }
 
-        webView.webChromeClient = object : WebChromeClient() {
+        wv.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                viewModel.updateProgress(newProgress)
+                if (getActiveWebView() == view) {
+                    viewModel.updateProgress(newProgress)
+                }
                 super.onProgressChanged(view, newProgress)
             }
 
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                enterFullscreen(view, callback)
+                if (getActiveWebView() == wv) {
+                    enterFullscreen(view, callback)
+                }
             }
 
             override fun onHideCustomView() {
-                leaveFullscreen()
+                if (getActiveWebView() == wv) {
+                    leaveFullscreen()
+                }
+            }
+        }
+        return wv
+    }
+
+    private fun createNewTab(url: String) {
+        val wv = createWebView()
+        val tab = TabInfo(wv, "新窗口", url)
+        tabs.add(tab)
+        webViewContainer.addView(wv, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, 
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        switchTab(tabs.size - 1)
+        if (url != "about:blank") openUrl(url)
+    }
+
+    private fun switchTab(index: Int) {
+        if (index !in tabs.indices) return
+        activeTabIndex = index
+        tabs.forEachIndexed { i, tab ->
+            tab.webView.visibility = if (i == index) View.VISIBLE else View.GONE
+        }
+        
+        val activeWv = getActiveWebView()
+        if (activeWv != null) {
+            urlInput.setText(activeWv.url ?: "")
+            val activeTab = tabs.getOrNull(activeTabIndex)
+            if (activeTab?.themeColor != null) {
+                renderThemeColor(activeTab.themeColor!!)
+            } else {
+                renderThemeColor(Color.parseColor("#F2F2F7"))
+            }
+        }
+        
+        // 恢复 UI 模式
+        if (activeWv?.url == null || activeWv.url == "about:blank") {
+            viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
+        } else {
+            viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
+        }
+    }
+
+    private fun closeTab(index: Int) {
+        if (index !in tabs.indices) return
+        val tab = tabs.removeAt(index)
+        webViewContainer.removeView(tab.webView)
+        tab.webView.destroy()
+        
+        if (tabs.isEmpty()) {
+            createNewTab("about:blank")
+        } else {
+            if (activeTabIndex >= tabs.size) {
+                switchTab(tabs.size - 1)
+            } else if (activeTabIndex == index) {
+                switchTab(activeTabIndex)
+            } else if (activeTabIndex > index) {
+                activeTabIndex--
             }
         }
     }
@@ -206,9 +298,10 @@ class BrowserActivity : AppCompatActivity() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (e1 == null) return false
                 val dx = e2.x - e1.x
+                val activeWv = getActiveWebView()
                 if (kotlin.math.abs(dx) > 100 && kotlin.math.abs(dx) > kotlin.math.abs(e2.y - e1.y)) {
-                    if (dx > 0 && webView.canGoBack()) webView.goBack()
-                    else if (dx < 0 && webView.canGoForward()) webView.goForward()
+                    if (dx > 0 && activeWv?.canGoBack() == true) activeWv.goBack()
+                    else if (dx < 0 && activeWv?.canGoForward() == true) activeWv.goForward()
                     return true
                 }
                 return false
@@ -241,6 +334,135 @@ class BrowserActivity : AppCompatActivity() {
         }
         seekFloat.setOnSeekBarChangeListener(seekListener)
         seekFull.setOnSeekBarChangeListener(seekListener)
+
+        setupVideoGestureLayer(floatingGestureLayer)
+        setupVideoGestureLayer(fullscreenGestureLayer)
+    }
+
+    private var lastNativeTapTime = 0L
+
+    private fun handleDoubleTap() {
+        val now = System.currentTimeMillis()
+        if (now - lastNativeTapTime < 320) {
+            eval("NativeVideo.toggle()")
+            lastNativeTapTime = 0L
+        } else {
+            lastNativeTapTime = now
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupVideoGestureLayer(layer: View) {
+        var downX = 0f
+        var downY = 0f
+        var downTime = 0L
+        var longPressTriggered = false
+        var moved = false
+        var oldRate = 1.0
+
+        val handler = android.os.Handler(mainLooper)
+        var longPressRunnable: Runnable? = null
+
+        layer.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    downTime = System.currentTimeMillis()
+                    moved = false
+                    longPressTriggered = false
+
+                    eval("NativeVideo.getState()") 
+
+                    longPressRunnable = Runnable {
+                        longPressTriggered = true
+                        oldRate = 1.0
+                        eval("NativeVideo.setRate(2.0)")
+                        Toast.makeText(this, "2.0x", Toast.LENGTH_SHORT).show()
+                    }
+                    handler.postDelayed(longPressRunnable!!, 450)
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+
+                    if (kotlin.math.abs(dx) > 16 || kotlin.math.abs(dy) > 16) {
+                        moved = true
+                    }
+
+                    if (kotlin.math.abs(dx) > 40 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
+                        longPressRunnable?.let { handler.removeCallbacks(it) }
+                        val sec = (dx / 8).toInt()
+                        Toast.makeText(this, if (sec >= 0) "+${sec}s" else "${sec}s", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    longPressRunnable?.let { handler.removeCallbacks(it) }
+
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    val dt = System.currentTimeMillis() - downTime
+
+                    if (longPressTriggered) {
+                        eval("NativeVideo.setRate(\$oldRate)")
+                        Toast.makeText(this, "恢复倍速", Toast.LENGTH_SHORT).show()
+                        return@setOnTouchListener true
+                    }
+
+                    if (kotlin.math.abs(dx) > 60 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
+                        val sec = (dx / 8).toInt()
+                        eval("NativeVideo.seekBy(\$sec)")
+                        return@setOnTouchListener true
+                    }
+
+                    if (!moved && dt < 260) {
+                        handleDoubleTap()
+                        return@setOnTouchListener true
+                    }
+
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+
+    private fun applyThemeColor(colorStr: String, forWebView: WebView) {
+        val parsedColor = try {
+            Color.parseColor(colorStr)
+        } catch (e: Exception) {
+            Color.parseColor("#F2F2F7")
+        }
+        val tab = tabs.find { it.webView == forWebView }
+        if (tab != null) {
+            tab.themeColor = parsedColor
+        }
+        if (getActiveWebView() == forWebView) {
+            renderThemeColor(parsedColor)
+        }
+    }
+
+    private fun renderThemeColor(color: Int) {
+        window.statusBarColor = color
+        bottomBar.setBackgroundColor(color)
+
+        val isLight = ColorUtils.calculateLuminance(color) > 0.5
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = isLight
+
+        val tintColor = if (isLight) Color.parseColor("#444444") else Color.WHITE
+        val searchBg = if (isLight) R.drawable.bg_search_bar else R.drawable.bg_search_bar_dark
+        addressTouchArea.setBackgroundResource(searchBg)
+        urlInput.setTextColor(tintColor)
+        urlInput.setHintTextColor(if (isLight) Color.parseColor("#999999") else Color.parseColor("#BBBBBB"))
+        
+        btnGo.setColorFilter(tintColor)
+        btnHome.setColorFilter(tintColor)
+        btnTabs.setColorFilter(tintColor)
+        btnTool.setColorFilter(tintColor)
     }
 
     private fun openInput(input: String) {
@@ -255,7 +477,13 @@ class BrowserActivity : AppCompatActivity() {
     private fun openUrl(url: String) {
         viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
         urlInput.setText(url)
-        webView.loadUrl(url)
+        getActiveWebView()?.loadUrl(url)
+        
+        val tab = tabs.getOrNull(activeTabIndex)
+        if (tab != null) {
+            tab.url = url
+            tab.title = "加载中..."
+        }
     }
 
     private fun showToolMenu() {
@@ -271,7 +499,7 @@ class BrowserActivity : AppCompatActivity() {
             dialog.dismiss()
         }
         view.findViewById<View>(R.id.tool_clear_cache).setOnClickListener {
-            webView.clearCache(true)
+            getActiveWebView()?.clearCache(true)
             Toast.makeText(this, "缓存已清", Toast.LENGTH_SHORT).show()
             dialog.dismiss()
         }
@@ -292,33 +520,73 @@ class BrowserActivity : AppCompatActivity() {
         bottomSheet?.setBackgroundResource(android.R.color.transparent)
 
         view.findViewById<View>(R.id.btnAddTab).setOnClickListener {
-            Toast.makeText(this, "新建窗口 (模拟)", Toast.LENGTH_SHORT).show()
+            createNewTab("about:blank")
             dialog.dismiss()
         }
-        view.findViewById<View>(R.id.btnCloseTab).setOnClickListener {
-            Toast.makeText(this, "关闭窗口 (模拟)", Toast.LENGTH_SHORT).show()
-            dialog.dismiss()
+        
+        val container = view.findViewById<android.widget.LinearLayout>(R.id.tabListContainer)
+        tabs.forEachIndexed { index, tab ->
+            val tabView = layoutInflater.inflate(R.layout.item_tab, container, false)
+            val txtTitle = tabView.findViewById<TextView>(R.id.txtTabTitle)
+            val btnClose = tabView.findViewById<ImageButton>(R.id.btnCloseTab)
+            
+            txtTitle.text = if (index == activeTabIndex) "★ ${tab.title}" else tab.title
+            
+            tabView.setOnClickListener {
+                switchTab(index)
+                dialog.dismiss()
+            }
+            
+            btnClose.setOnClickListener {
+                closeTab(index)
+                dialog.dismiss()
+                showTabsMenu() // 重新刷新列表
+            }
+            container.addView(tabView)
         }
+
         dialog.show()
     }
 
     private fun applyUiMode(mode: BrowserViewModel.UiMode) {
         homeLayer.visibility = if (mode == BrowserViewModel.UiMode.HOME) View.VISIBLE else View.GONE
-        webView.visibility = if (mode == BrowserViewModel.UiMode.HOME || mode == BrowserViewModel.UiMode.FULLSCREEN) View.GONE else View.VISIBLE
+        webViewContainer.visibility = if (mode == BrowserViewModel.UiMode.HOME || mode == BrowserViewModel.UiMode.FULLSCREEN) View.GONE else View.VISIBLE
         bottomBar.visibility = if (mode == BrowserViewModel.UiMode.HOME || mode == BrowserViewModel.UiMode.WEB || mode == BrowserViewModel.UiMode.FLOATING) View.VISIBLE else View.GONE
         floatingControls.visibility = if (mode == BrowserViewModel.UiMode.FLOATING) View.VISIBLE else View.GONE
+        floatingGestureLayer.visibility = if (mode == BrowserViewModel.UiMode.FLOATING) View.VISIBLE else View.GONE
         fullscreenContainer.visibility = if (mode == BrowserViewModel.UiMode.FULLSCREEN) View.VISIBLE else View.GONE
+        fullscreenGestureLayer.visibility = if (mode == BrowserViewModel.UiMode.FULLSCREEN) View.VISIBLE else View.GONE
         fullscreenControls.visibility = if (mode == BrowserViewModel.UiMode.FULLSCREEN) View.VISIBLE else View.GONE
         
-        if (mode == BrowserViewModel.UiMode.FULLSCREEN) hideSystemBars() else showSystemBars()
+        if (mode == BrowserViewModel.UiMode.FLOATING) {
+            floatingGestureLayer.bringToFront()
+            floatingControls.bringToFront()
+        }
+
+        if (mode == BrowserViewModel.UiMode.FULLSCREEN) {
+            fullscreenContainer.bringToFront()
+            fullscreenGestureLayer.bringToFront()
+            fullscreenControls.bringToFront()
+            hideSystemBars()
+        } else {
+            showSystemBars()
+        }
     }
 
     private fun enterFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
+        if (customView != null) {
+            callback.onCustomViewHidden()
+            return
+        }
         customView = view
         customViewCallback = callback
+        fullscreenContainer.removeAllViews()
         fullscreenContainer.addView(view, FrameLayout.LayoutParams(-1, -1))
         applyOrientationMode()
         viewModel.setUiMode(BrowserViewModel.UiMode.FULLSCREEN)
+        
+        fullscreenContainer.bringToFront()
+        fullscreenControls.bringToFront()
     }
 
     private fun leaveFullscreen() {
@@ -371,8 +639,7 @@ class BrowserActivity : AppCompatActivity() {
         return String.format(Locale.US, "%02d:%02d", sec / 60, sec % 60)
     }
 
-    private fun injectVideoScript() { webView.evaluateJavascript(VideoJs.SCRIPT, null) }
-    private fun eval(js: String) { webView.evaluateJavascript(js, null) }
+    private fun eval(js: String) { getActiveWebView()?.evaluateJavascript(js, null) }
 
     private fun hideSystemBars() {
         if (Build.VERSION.SDK_INT >= 30) {
@@ -391,24 +658,36 @@ class BrowserActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         if (viewModel.uiMode.value == BrowserViewModel.UiMode.FULLSCREEN) requestExitFullscreen()
-        else if (webView.canGoBack()) webView.goBack()
+        else if (getActiveWebView()?.canGoBack() == true) getActiveWebView()?.goBack()
         else if (viewModel.uiMode.value != BrowserViewModel.UiMode.HOME) viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
         else super.onBackPressed()
     }
 
-    inner class VideoBridge {
+    inner class VideoBridge(private val wv: WebView) {
         @JavascriptInterface fun onVideoActivated(title: String) {
-            runOnUiThread { if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN) viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING) }
+            runOnUiThread { 
+                if (getActiveWebView() != wv) return@runOnUiThread
+                if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN) viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING) 
+            }
         }
         @JavascriptInterface fun onProgress(curr: Double, dur: Double, paused: Boolean, rate: Double) {
             runOnUiThread {
+                if (getActiveWebView() != wv) return@runOnUiThread
                 currentPosition = curr; currentDuration = dur; isPaused = paused
                 viewModel.updateVideoState(curr, dur, paused)
                 updateProgressUi()
             }
         }
         @JavascriptInterface fun onHint(text: String) {
-            runOnUiThread { Toast.makeText(this@BrowserActivity, text, Toast.LENGTH_SHORT).show() }
+            runOnUiThread { 
+                if (getActiveWebView() != wv) return@runOnUiThread
+                Toast.makeText(this@BrowserActivity, text, Toast.LENGTH_SHORT).show() 
+            }
+        }
+        @JavascriptInterface fun onThemeColor(color: String) {
+            runOnUiThread {
+                applyThemeColor(color, wv)
+            }
         }
     }
 }

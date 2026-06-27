@@ -3,7 +3,10 @@
     android:id="@+id/fullscreenControls"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#33000000">
+    android:background="#33000000"
+    android:clickable="true"
+    android:focusable="true"
+    android:elevation="40dp">
 
     <ImageButton
         android:id="@+id/btnExitFull"

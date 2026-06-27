@@ -6,11 +6,13 @@
     android:layout_margin="12dp"
     android:background="@drawable/bg_rounded_card"
     android:backgroundTint="#CC000000"
+    android:clickable="true"
+    android:focusable="true"
+    android:elevation="24dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingLeft="12dp"
-    android:paddingRight="12dp"
-    android:elevation="4dp">
+    android:paddingRight="12dp">
 
     <ImageButton
         android:id="@+id/btnFloatPlayPause"

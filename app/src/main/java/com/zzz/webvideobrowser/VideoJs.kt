@@ -15,7 +15,6 @@ object VideoJs {
   document.head.appendChild(style);
 
   let activeVideo = null;
-  let lastTapTime = 0;
 
   function callAndroid(fn) {
     try { fn(); } catch (e) {}
@@ -62,26 +61,11 @@ object VideoJs {
     if (!video || video.__WB_BOUND__) return;
     video.__WB_BOUND__ = true;
 
-    // 2. 绝对接管：Z轴强行提权，把视频层浮到网站自带的控制层上面
-    const computed = window.getComputedStyle(video);
-    if (computed.position === 'static') {
-      video.style.setProperty('position', 'relative', 'important');
-    }
-    video.style.setProperty('z-index', '2147483647', 'important');
-    
     // 强制移除 controls 属性
     video.removeAttribute("controls");
     video.addEventListener("play", function () {
       video.removeAttribute("controls");
     });
-
-    let downX = 0;
-    let downY = 0;
-    let downTime = 0;
-    let oldRate = 1;
-    let longPressTimer = null;
-    let longPressActive = false;
-    let moved = false;
 
     video.addEventListener("play", function () {
       activeVideo = video;
@@ -94,84 +78,6 @@ object VideoJs {
 
     video.addEventListener("timeupdate", function () {
       if (activeVideo === video) notifyProgress(video);
-    }, true);
-
-    // 3. 绝对接管：直接在最高层级的 video 上强行拦截手势，并掐断向网页事件的传递
-    video.addEventListener("pointerdown", function (e) {
-      activeVideo = video;
-      downX = e.clientX;
-      downY = e.clientY;
-      downTime = Date.now();
-      moved = false;
-      longPressActive = false;
-      oldRate = video.playbackRate || 1;
-
-      clearTimeout(longPressTimer);
-      longPressTimer = setTimeout(function () {
-        longPressActive = true;
-        video.playbackRate = 2.0;
-        callAndroid(function () {
-          AndroidVideo.onHint("2.0x");
-        });
-      }, 450);
-      
-      e.stopPropagation(); // 绝对接管：阻止事件冒泡到网页原 UI
-    }, true);
-
-    video.addEventListener("pointermove", function (e) {
-      const dx = e.clientX - downX;
-      const dy = e.clientY - downY;
-      if (Math.abs(dx) > 16 || Math.abs(dy) > 16) moved = true;
-
-      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-        clearTimeout(longPressTimer);
-        callAndroid(function () {
-          const sec = Math.round(dx / 8);
-          AndroidVideo.onHint((sec >= 0 ? "+" : "") + sec + "s");
-        });
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    }, true);
-
-    video.addEventListener("pointerup", function (e) {
-      clearTimeout(longPressTimer);
-
-      const dx = e.clientX - downX;
-      const dy = e.clientY - downY;
-      const dt = Date.now() - downTime;
-
-      if (longPressActive) {
-        video.playbackRate = oldRate;
-        longPressActive = false;
-        callAndroid(function () {
-          AndroidVideo.onHint("恢复 " + oldRate + "x");
-        });
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-
-      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-        seekBy(video, Math.round(dx / 8));
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-
-      if (!moved && dt < 260) {
-        const now = Date.now();
-        if (now - lastTapTime < 320) {
-          toggle(video);
-          lastTapTime = 0;
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
-        lastTapTime = now;
-      }
-      
-      e.stopPropagation(); // 绝对接管：阻止网页的原生点击处理
     }, true);
   }
 
@@ -231,6 +137,48 @@ object VideoJs {
       };
     }
   };
+
+  function extractThemeColor() {
+    let color = null;
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme && metaTheme.content) {
+      color = metaTheme.content;
+    }
+    if (!color || color.toLowerCase() === 'transparent') {
+      const bg = window.getComputedStyle(document.body).backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+        color = bg;
+      }
+    }
+    if (!color) color = "#FFFFFF";
+    
+    let hex = "#FFFFFF";
+    if (color.startsWith("#")) {
+        hex = color;
+    } else if (color.startsWith("rgb")) {
+        const rgb = color.match(/\d+/g);
+        if (rgb && rgb.length >= 3) {
+            hex = "#" + ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1).toUpperCase();
+        }
+    } else {
+        const ctx = document.createElement("canvas").getContext("2d");
+        ctx.fillStyle = color;
+        hex = ctx.fillStyle;
+    }
+    
+    callAndroid(function () {
+      if (window.AndroidVideo && AndroidVideo.onThemeColor) {
+         AndroidVideo.onThemeColor(hex);
+      }
+    });
+  }
+
+  setTimeout(extractThemeColor, 300);
+  if (document.head) {
+      new MutationObserver(extractThemeColor).observe(document.head, { childList: true, subtree: true, attributes: true });
+  }
+
 })();
 """
 }
+

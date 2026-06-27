@@ -2,12 +2,27 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/bottomBar"
     android:layout_width="match_parent"
-    android:layout_height="72dp"
-    android:background="#F2F2F7"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:paddingLeft="12dp"
-    android:paddingRight="12dp">
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- 进度条 (物理吸附在搜索栏最顶端) -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:max="100"
+        android:progressTint="#007AFF"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:background="#F2F2F7"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="12dp"
+        android:paddingRight="12dp">
 
     <LinearLayout
         android:id="@+id/addressTouchArea"
@@ -63,4 +78,5 @@
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:src="@drawable/ic_tool"
         android:scaleType="centerInside" />
+    </LinearLayout>
 </LinearLayout>
