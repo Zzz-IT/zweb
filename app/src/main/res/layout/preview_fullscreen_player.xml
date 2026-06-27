@@ -3,9 +3,9 @@
     android:id="@+id/fullscreenControls"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#33000000"
-    android:clickable="true"
-    android:focusable="true"
+    android:background="#00000000"
+    android:clickable="false"
+    android:focusable="false"
     android:elevation="40dp">
 
     <ImageButton
@@ -15,16 +15,21 @@
         android:layout_gravity="top|left"
         android:layout_margin="16dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:clickable="true"
+        android:focusable="true"
         android:src="@drawable/ic_close"
         android:scaleType="centerInside" />
 
     <LinearLayout
+        android:id="@+id/fullscreenBottomControls"
         android:layout_width="match_parent"
         android:layout_height="80dp"
         android:layout_gravity="bottom"
         android:layout_margin="16dp"
         android:background="@drawable/bg_rounded_card"
         android:backgroundTint="#CC000000"
+        android:clickable="true"
+        android:focusable="true"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingLeft="12dp"

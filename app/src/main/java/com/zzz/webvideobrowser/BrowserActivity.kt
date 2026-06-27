@@ -13,6 +13,7 @@ import android.view.WindowInsetsController
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -27,10 +28,10 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.ViewModelProvider
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.ViewModelProvider
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.net.URLEncoder
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -45,11 +46,22 @@ class BrowserActivity : AppCompatActivity() {
     private val tabs = mutableListOf<TabInfo>()
     private var activeTabIndex = -1
     
-    data class TabInfo(val webView: WebView, var title: String, var url: String, var themeColor: Int? = null)
+    data class TabInfo(
+        val webView: WebView, 
+        var title: String, 
+        var url: String, 
+        var themeColor: Int? = null,
+        var hasVideo: Boolean = false,
+        var isVideoPaused: Boolean = true
+    )
+    
     private fun getActiveWebView(): WebView? = if (activeTabIndex in tabs.indices) tabs[activeTabIndex].webView else null
+
+    private lateinit var urlRouter: BrowserUrlRouter
 
     private lateinit var homeLayer: View
     private lateinit var bottomBar: View
+    private lateinit var bottomBarContent: View
     private lateinit var addressTouchArea: View
     private lateinit var progressBar: ProgressBar
 
@@ -82,6 +94,7 @@ class BrowserActivity : AppCompatActivity() {
     private var currentDuration = 0.0
     private var currentPosition = 0.0
     private var isPaused = true
+    private var currentRate = 1.0
     private var isUserSeeking = false
 
     private var customView: View? = null
@@ -95,13 +108,15 @@ class BrowserActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewModel = ViewModelProvider(this)[BrowserViewModel::class.java]
-        WebView.setWebContentsDebuggingEnabled(true)
+        val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        WebView.setWebContentsDebuggingEnabled(isDebuggable)
         setContentView(R.layout.activity_browser)
+
+        urlRouter = BrowserUrlRouter(this)
 
         bindViews()
         setupViewModel()
         
-        // 初始创建一个空白页
         createNewTab("about:blank")
         
         setupHome()
@@ -117,7 +132,8 @@ class BrowserActivity : AppCompatActivity() {
             progressBar.progress = p
         }
         viewModel.isLoading.observe(this) { loading ->
-            val isFull = viewModel.uiMode.value == BrowserViewModel.UiMode.FULLSCREEN
+            val mode = viewModel.uiMode.value
+            val isFull = mode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM || mode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO
             progressBar.visibility = if (loading && !isFull) View.VISIBLE else View.GONE
         }
     }
@@ -127,6 +143,7 @@ class BrowserActivity : AppCompatActivity() {
         webViewContainer = findViewById(R.id.webViewContainer)
         homeLayer = findViewById(R.id.homeLayer)
         bottomBar = findViewById(R.id.bottomBar)
+        bottomBarContent = findViewById(R.id.bottomBarContent)
         addressTouchArea = findViewById(R.id.addressTouchArea)
         progressBar = findViewById(R.id.progressBar)
 
@@ -178,6 +195,15 @@ class BrowserActivity : AppCompatActivity() {
         wv.addJavascriptInterface(VideoBridge(wv), "AndroidVideo")
 
         wv.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                return urlRouter.shouldOverride(view, request)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                return urlRouter.shouldOverride(view, url)
+            }
+
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 if (getActiveWebView() == view) {
@@ -208,7 +234,7 @@ class BrowserActivity : AppCompatActivity() {
 
             override fun onHideCustomView() {
                 if (getActiveWebView() == wv) {
-                    leaveFullscreen()
+                    requestExitFullscreen()
                 }
             }
         }
@@ -234,22 +260,21 @@ class BrowserActivity : AppCompatActivity() {
             tab.webView.visibility = if (i == index) View.VISIBLE else View.GONE
         }
         
-        val activeWv = getActiveWebView()
-        if (activeWv != null) {
-            urlInput.setText(activeWv.url ?: "")
-            val activeTab = tabs.getOrNull(activeTabIndex)
-            if (activeTab?.themeColor != null) {
-                renderThemeColor(activeTab.themeColor!!)
-            } else {
-                renderThemeColor(Color.parseColor("#F2F2F7"))
-            }
-        }
+        val tab = tabs[index]
+        urlInput.setText(tab.webView.url ?: tab.url)
         
-        // 恢复 UI 模式
-        if (activeWv?.url == null || activeWv.url == "about:blank") {
-            viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
-        } else {
-            viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
+        renderThemeColor(tab.themeColor ?: Color.parseColor("#F2F2F7"))
+
+        when {
+            tab.webView.url == null || tab.webView.url == "about:blank" -> {
+                viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
+            }
+            tab.hasVideo && !tab.isVideoPaused -> {
+                viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
+            }
+            else -> {
+                viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
+            }
         }
     }
 
@@ -257,6 +282,10 @@ class BrowserActivity : AppCompatActivity() {
         if (index !in tabs.indices) return
         val tab = tabs.removeAt(index)
         webViewContainer.removeView(tab.webView)
+        tab.webView.stopLoading()
+        tab.webView.webChromeClient = null
+        tab.webView.webViewClient = WebViewClient()
+        tab.webView.removeAllViews()
         tab.webView.destroy()
         
         if (tabs.isEmpty()) {
@@ -270,6 +299,19 @@ class BrowserActivity : AppCompatActivity() {
                 activeTabIndex--
             }
         }
+    }
+
+    override fun onDestroy() {
+        tabs.forEach { tab ->
+            webViewContainer.removeView(tab.webView)
+            tab.webView.stopLoading()
+            tab.webView.webChromeClient = null
+            tab.webView.webViewClient = WebViewClient()
+            tab.webView.removeAllViews()
+            tab.webView.destroy()
+        }
+        tabs.clear()
+        super.onDestroy()
     }
 
     private fun setupHome() {
@@ -310,10 +352,22 @@ class BrowserActivity : AppCompatActivity() {
         addressTouchArea.setOnTouchListener { _, event -> detector.onTouchEvent(event); false }
     }
 
+    private fun requestVideoFullscreenWithFallback() {
+        val wv = getActiveWebView() ?: return
+        wv.evaluateJavascript("NativeVideo.requestFullscreen()") { _ ->
+            rootContainer.postDelayed({
+                val mode = viewModel.uiMode.value
+                if (mode != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM) {
+                    enterPseudoFullscreen()
+                }
+            }, 600)
+        }
+    }
+
     private fun setupPlayerControls() {
         btnFloatPlayPause.setOnClickListener { eval("NativeVideo.toggle()") }
         btnFullPlayPause.setOnClickListener { eval("NativeVideo.toggle()") }
-        btnFloatFull.setOnClickListener { eval("NativeVideo.requestFullscreen()") }
+        btnFloatFull.setOnClickListener { requestVideoFullscreenWithFallback() }
         btnExitFull.setOnClickListener { requestExitFullscreen() }
         btnOrientation.setOnClickListener { cycleOrientationMode() }
 
@@ -376,7 +430,7 @@ class BrowserActivity : AppCompatActivity() {
 
                     longPressRunnable = Runnable {
                         longPressTriggered = true
-                        oldRate = 1.0
+                        oldRate = currentRate
                         eval("NativeVideo.setRate(2.0)")
                         Toast.makeText(this, "2.0x", Toast.LENGTH_SHORT).show()
                     }
@@ -408,14 +462,14 @@ class BrowserActivity : AppCompatActivity() {
                     val dt = System.currentTimeMillis() - downTime
 
                     if (longPressTriggered) {
-                        eval("NativeVideo.setRate(\$oldRate)")
+                        eval("NativeVideo.setRate($oldRate)")
                         Toast.makeText(this, "恢复倍速", Toast.LENGTH_SHORT).show()
                         return@setOnTouchListener true
                     }
 
                     if (kotlin.math.abs(dx) > 60 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
                         val sec = (dx / 8).toInt()
-                        eval("NativeVideo.seekBy(\$sec)")
+                        eval("NativeVideo.seekBy($sec)")
                         return@setOnTouchListener true
                     }
 
@@ -429,6 +483,13 @@ class BrowserActivity : AppCompatActivity() {
                 else -> true
             }
         }
+    }
+
+    private fun normalizeBarColor(color: Int): Int {
+        val lum = ColorUtils.calculateLuminance(color)
+        if (lum > 0.94) return Color.parseColor("#F2F2F7")
+        if (lum < 0.08) return Color.parseColor("#111111")
+        return color
     }
 
     private fun applyThemeColor(colorStr: String, forWebView: WebView) {
@@ -446,23 +507,42 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderThemeColor(color: Int) {
-        window.statusBarColor = color
-        bottomBar.setBackgroundColor(color)
+    private fun renderThemeColor(rawColor: Int) {
+        val safeBg = normalizeBarColor(rawColor)
 
-        val isLight = ColorUtils.calculateLuminance(color) > 0.5
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = isLight
+        window.statusBarColor = safeBg
+        window.navigationBarColor = safeBg
+        bottomBar.setBackgroundColor(safeBg)
+        bottomBarContent.setBackgroundColor(safeBg)
 
-        val tintColor = if (isLight) Color.parseColor("#444444") else Color.WHITE
-        val searchBg = if (isLight) R.drawable.bg_search_bar else R.drawable.bg_search_bar_dark
-        addressTouchArea.setBackgroundResource(searchBg)
-        urlInput.setTextColor(tintColor)
-        urlInput.setHintTextColor(if (isLight) Color.parseColor("#999999") else Color.parseColor("#BBBBBB"))
-        
-        btnGo.setColorFilter(tintColor)
-        btnHome.setColorFilter(tintColor)
-        btnTabs.setColorFilter(tintColor)
-        btnTool.setColorFilter(tintColor)
+        val isLight = ColorUtils.calculateLuminance(safeBg) > 0.55
+
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = isLight
+            isAppearanceLightNavigationBars = isLight
+        }
+
+        val fg = if (isLight) Color.parseColor("#222222") else Color.WHITE
+        val hint = if (isLight) Color.parseColor("#8E8E93") else Color.parseColor("#BDBDBD")
+        val inputBg = if (isLight) {
+            Color.parseColor("#E9E9EF")
+        } else {
+            ColorUtils.blendARGB(safeBg, Color.BLACK, 0.35f)
+        }
+
+        addressTouchArea.backgroundTintList = android.content.res.ColorStateList.valueOf(inputBg)
+
+        urlInput.setTextColor(fg)
+        urlInput.setHintTextColor(hint)
+
+        btnGo.setColorFilter(fg)
+        btnHome.setColorFilter(fg)
+        btnTabs.setColorFilter(fg)
+        btnTool.setColorFilter(fg)
+
+        progressBar.progressTintList = android.content.res.ColorStateList.valueOf(
+            if (isLight) Color.parseColor("#007AFF") else Color.WHITE
+        )
     }
 
     private fun openInput(input: String) {
@@ -486,6 +566,17 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
+    private fun forceVideoTakeover() {
+        val wv = getActiveWebView() ?: return
+        wv.evaluateJavascript("NativeVideo.forceActivate()") { result ->
+            if (result == "true") {
+                viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
+            } else {
+                Toast.makeText(this, "未发现可接管的视频", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun showToolMenu() {
         val dialog = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.preview_toolbox, null)
@@ -506,6 +597,10 @@ class BrowserActivity : AppCompatActivity() {
         view.findViewById<View>(R.id.tool_clear_cookie).setOnClickListener {
             CookieManager.getInstance().removeAllCookies(null)
             Toast.makeText(this, "Cookie已清", Toast.LENGTH_SHORT).show()
+            dialog.dismiss()
+        }
+        view.findViewById<View>(R.id.tool_force_video)?.setOnClickListener {
+            forceVideoTakeover()
             dialog.dismiss()
         }
         dialog.show()
@@ -549,27 +644,56 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun applyUiMode(mode: BrowserViewModel.UiMode) {
-        homeLayer.visibility = if (mode == BrowserViewModel.UiMode.HOME) View.VISIBLE else View.GONE
-        webViewContainer.visibility = if (mode == BrowserViewModel.UiMode.HOME || mode == BrowserViewModel.UiMode.FULLSCREEN) View.GONE else View.VISIBLE
-        bottomBar.visibility = if (mode == BrowserViewModel.UiMode.HOME || mode == BrowserViewModel.UiMode.WEB || mode == BrowserViewModel.UiMode.FLOATING) View.VISIBLE else View.GONE
-        floatingControls.visibility = if (mode == BrowserViewModel.UiMode.FLOATING) View.VISIBLE else View.GONE
-        floatingGestureLayer.visibility = if (mode == BrowserViewModel.UiMode.FLOATING) View.VISIBLE else View.GONE
-        fullscreenContainer.visibility = if (mode == BrowserViewModel.UiMode.FULLSCREEN) View.VISIBLE else View.GONE
-        fullscreenGestureLayer.visibility = if (mode == BrowserViewModel.UiMode.FULLSCREEN) View.VISIBLE else View.GONE
-        fullscreenControls.visibility = if (mode == BrowserViewModel.UiMode.FULLSCREEN) View.VISIBLE else View.GONE
-        
-        if (mode == BrowserViewModel.UiMode.FLOATING) {
-            floatingGestureLayer.bringToFront()
-            floatingControls.bringToFront()
+        val isHome = mode == BrowserViewModel.UiMode.HOME
+        val isFloating = mode == BrowserViewModel.UiMode.FLOATING
+        val isCustomFull = mode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM
+        val isPseudoFull = mode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO
+        val isAnyFull = isCustomFull || isPseudoFull
+
+        homeLayer.visibility = if (isHome) View.VISIBLE else View.GONE
+
+        webViewContainer.visibility = when {
+            isHome -> View.GONE
+            isCustomFull -> View.GONE
+            else -> View.VISIBLE
         }
 
-        if (mode == BrowserViewModel.UiMode.FULLSCREEN) {
-            fullscreenContainer.bringToFront()
-            fullscreenGestureLayer.bringToFront()
-            fullscreenControls.bringToFront()
+        bottomBar.visibility = if (mode == BrowserViewModel.UiMode.WEB || isFloating) View.VISIBLE else View.GONE
+
+        floatingControls.visibility = if (isFloating) View.VISIBLE else View.GONE
+        floatingGestureLayer.visibility = if (isFloating) View.VISIBLE else View.GONE
+
+        fullscreenContainer.visibility = if (isCustomFull) View.VISIBLE else View.GONE
+
+        fullscreenGestureLayer.visibility = if (isAnyFull) View.VISIBLE else View.GONE
+        fullscreenControls.visibility = if (isAnyFull) View.VISIBLE else View.GONE
+
+        if (isAnyFull) {
             hideSystemBars()
         } else {
             showSystemBars()
+        }
+
+        bringVideoLayersToFront()
+    }
+
+    private fun bringVideoLayersToFront() {
+        when (viewModel.uiMode.value) {
+            BrowserViewModel.UiMode.FLOATING -> {
+                floatingGestureLayer.bringToFront()
+                floatingControls.bringToFront()
+            }
+            BrowserViewModel.UiMode.FULLSCREEN_CUSTOM -> {
+                fullscreenContainer.bringToFront()
+                fullscreenGestureLayer.bringToFront()
+                fullscreenControls.bringToFront()
+            }
+            BrowserViewModel.UiMode.FULLSCREEN_PSEUDO -> {
+                webViewContainer.bringToFront()
+                fullscreenGestureLayer.bringToFront()
+                fullscreenControls.bringToFront()
+            }
+            else -> Unit
         }
     }
 
@@ -578,18 +702,29 @@ class BrowserActivity : AppCompatActivity() {
             callback.onCustomViewHidden()
             return
         }
+
         customView = view
         customViewCallback = callback
+
         fullscreenContainer.removeAllViews()
-        fullscreenContainer.addView(view, FrameLayout.LayoutParams(-1, -1))
+        fullscreenContainer.addView(
+            view,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
         applyOrientationMode()
-        viewModel.setUiMode(BrowserViewModel.UiMode.FULLSCREEN)
-        
-        fullscreenContainer.bringToFront()
-        fullscreenControls.bringToFront()
+        viewModel.setUiMode(BrowserViewModel.UiMode.FULLSCREEN_CUSTOM)
     }
 
-    private fun leaveFullscreen() {
+    private fun enterPseudoFullscreen() {
+        applyOrientationMode()
+        viewModel.setUiMode(BrowserViewModel.UiMode.FULLSCREEN_PSEUDO)
+    }
+
+    private fun leaveCustomFullscreen() {
         fullscreenContainer.removeAllViews()
         customView = null
         customViewCallback = null
@@ -597,9 +732,22 @@ class BrowserActivity : AppCompatActivity() {
         viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
     }
 
+    private fun leavePseudoFullscreen() {
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
+    }
+
     private fun requestExitFullscreen() {
-        customViewCallback?.onCustomViewHidden()
-        leaveFullscreen()
+        when (viewModel.uiMode.value) {
+            BrowserViewModel.UiMode.FULLSCREEN_CUSTOM -> {
+                customViewCallback?.onCustomViewHidden()
+                leaveCustomFullscreen()
+            }
+            BrowserViewModel.UiMode.FULLSCREEN_PSEUDO -> {
+                leavePseudoFullscreen()
+            }
+            else -> Unit
+        }
     }
 
     private fun cycleOrientationMode() {
@@ -657,33 +805,63 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     override fun onBackPressed() {
-        if (viewModel.uiMode.value == BrowserViewModel.UiMode.FULLSCREEN) requestExitFullscreen()
+        if (viewModel.uiMode.value == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM || 
+            viewModel.uiMode.value == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
+            requestExitFullscreen()
+        }
         else if (getActiveWebView()?.canGoBack() == true) getActiveWebView()?.goBack()
         else if (viewModel.uiMode.value != BrowserViewModel.UiMode.HOME) viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
         else super.onBackPressed()
     }
 
     inner class VideoBridge(private val wv: WebView) {
-        @JavascriptInterface fun onVideoActivated(title: String) {
-            runOnUiThread { 
-                if (getActiveWebView() != wv) return@runOnUiThread
-                if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN) viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING) 
+        @JavascriptInterface
+        fun onVideoDetected(title: String, paused: Boolean, curr: Double, dur: Double) {
+            runOnUiThread {
+                val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
+                tab.hasVideo = true
+                tab.isVideoPaused = paused
+                if (getActiveWebView() == wv && !paused) {
+                    if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM &&
+                        viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
+                        viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
+                    }
+                }
             }
         }
+
+        @JavascriptInterface fun onVideoActivated(title: String) {
+            runOnUiThread { 
+                val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
+                tab.hasVideo = true
+                tab.isVideoPaused = false
+                if (getActiveWebView() != wv) return@runOnUiThread
+                if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM &&
+                    viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
+                    viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING) 
+                }
+            }
+        }
+        
         @JavascriptInterface fun onProgress(curr: Double, dur: Double, paused: Boolean, rate: Double) {
             runOnUiThread {
                 if (getActiveWebView() != wv) return@runOnUiThread
-                currentPosition = curr; currentDuration = dur; isPaused = paused
+                currentPosition = curr
+                currentDuration = dur
+                isPaused = paused
+                currentRate = rate
                 viewModel.updateVideoState(curr, dur, paused)
                 updateProgressUi()
             }
         }
+        
         @JavascriptInterface fun onHint(text: String) {
             runOnUiThread { 
                 if (getActiveWebView() != wv) return@runOnUiThread
                 Toast.makeText(this@BrowserActivity, text, Toast.LENGTH_SHORT).show() 
             }
         }
+        
         @JavascriptInterface fun onThemeColor(color: String) {
             runOnUiThread {
                 applyThemeColor(color, wv)

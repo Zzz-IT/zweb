@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 
 class BrowserViewModel : ViewModel() {
     enum class UiMode {
-        HOME, WEB, FLOATING, FULLSCREEN
+        HOME, WEB, FLOATING, FULLSCREEN_CUSTOM, FULLSCREEN_PSEUDO
     }
 
     val uiMode = MutableLiveData(UiMode.HOME)
