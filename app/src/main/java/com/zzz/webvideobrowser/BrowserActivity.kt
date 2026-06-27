@@ -14,6 +14,7 @@ import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -27,6 +28,7 @@ import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowInsetsControllerCompat
@@ -41,7 +43,6 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var viewModel: BrowserViewModel
     private lateinit var rootContainer: FrameLayout
     
-    // 多标签页容器和状态
     private lateinit var webViewContainer: FrameLayout
     private val tabs = mutableListOf<TabInfo>()
     private var activeTabIndex = -1
@@ -52,7 +53,10 @@ class BrowserActivity : AppCompatActivity() {
         var url: String, 
         var themeColor: Int? = null,
         var hasVideo: Boolean = false,
-        var isVideoPaused: Boolean = true
+        var isVideoPaused: Boolean = true,
+        var activeVideoId: String? = null,
+        var videoBindReason: String? = null,
+        var sniffedMediaList: MutableList<String> = mutableListOf()
     )
     
     private fun getActiveWebView(): WebView? = if (activeTabIndex in tabs.indices) tabs[activeTabIndex].webView else null
@@ -90,12 +94,17 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var floatingGestureLayer: View
     private lateinit var fullscreenGestureLayer: View
 
-
     private var currentDuration = 0.0
     private var currentPosition = 0.0
     private var isPaused = true
     private var currentRate = 1.0
     private var isUserSeeking = false
+
+    // V2 记录
+    private var activeVideoId: String? = null
+    private var videoBindReason: String = ""
+    private var lastVideoActivatedAt = 0L
+    private var lastVideoProgressAt = 0L
 
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
@@ -189,7 +198,7 @@ class BrowserActivity : AppCompatActivity() {
             loadWithOverviewMode = true
             builtInZoomControls = false
             displayZoomControls = false
-            userAgentString = userAgentString + " WebVideoBrowser/1.0"
+            userAgentString = userAgentString + " WebVideoBrowser/2.0"
         }
 
         wv.addJavascriptInterface(VideoBridge(wv), "AndroidVideo")
@@ -203,6 +212,11 @@ class BrowserActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
                 return urlRouter.shouldOverride(view, url)
             }
+            
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                sniffMediaRequest(view, request.url.toString(), request.requestHeaders)
+                return super.shouldInterceptRequest(view, request)
+            }
 
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
@@ -213,6 +227,7 @@ class BrowserActivity : AppCompatActivity() {
                 if (tab != null) {
                     tab.url = url
                     tab.title = view.title ?: url
+                    tab.sniffedMediaList.clear()
                 }
                 view.evaluateJavascript(VideoJs.SCRIPT, null)
             }
@@ -241,6 +256,26 @@ class BrowserActivity : AppCompatActivity() {
         return wv
     }
 
+    private fun sniffMediaRequest(wv: WebView, rawUrl: String, headers: Map<String, String>) {
+        val lower = rawUrl.lowercase(Locale.US)
+        val type = when {
+            ".m3u8" in lower || "m3u8" in lower -> "hls"
+            ".mpd" in lower -> "dash"
+            ".mp4" in lower -> "mp4"
+            ".webm" in lower -> "webm"
+            ".m4s" in lower -> "fragment"
+            ".ts" in lower -> "ts"
+            else -> null
+        } ?: return
+
+        runOnUiThread {
+            val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
+            if (!tab.sniffedMediaList.contains(rawUrl)) {
+                tab.sniffedMediaList.add(rawUrl)
+            }
+        }
+    }
+
     private fun createNewTab(url: String) {
         val wv = createWebView()
         val tab = TabInfo(wv, "新窗口", url)
@@ -263,13 +298,16 @@ class BrowserActivity : AppCompatActivity() {
         val tab = tabs[index]
         urlInput.setText(tab.webView.url ?: tab.url)
         
+        activeVideoId = tab.activeVideoId
+        videoBindReason = tab.videoBindReason ?: ""
+        
         renderThemeColor(tab.themeColor ?: Color.parseColor("#F2F2F7"))
 
         when {
             tab.webView.url == null || tab.webView.url == "about:blank" -> {
                 viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
             }
-            tab.hasVideo && !tab.isVideoPaused -> {
+            tab.hasVideo && !tab.isVideoPaused && tab.activeVideoId != null -> {
                 viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
             }
             else -> {
@@ -358,15 +396,29 @@ class BrowserActivity : AppCompatActivity() {
             rootContainer.postDelayed({
                 val mode = viewModel.uiMode.value
                 if (mode != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM) {
-                    enterPseudoFullscreen()
+                    wv.evaluateJavascript("NativeVideo.getState()") { state ->
+                        if (state != "null") {
+                            enterPseudoFullscreen()
+                        } else {
+                            Toast.makeText(this, "未绑定可全屏视频", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }, 600)
         }
     }
 
     private fun setupPlayerControls() {
-        btnFloatPlayPause.setOnClickListener { eval("NativeVideo.toggle()") }
-        btnFullPlayPause.setOnClickListener { eval("NativeVideo.toggle()") }
+        btnFloatPlayPause.setOnClickListener { 
+            evalBool("NativeVideo.toggle()") { ok ->
+                if (!ok) Toast.makeText(this, "未绑定可控视频", Toast.LENGTH_SHORT).show()
+            }
+        }
+        btnFullPlayPause.setOnClickListener { 
+            evalBool("NativeVideo.toggle()") { ok ->
+                if (!ok) Toast.makeText(this, "未绑定可控视频", Toast.LENGTH_SHORT).show()
+            }
+        }
         btnFloatFull.setOnClickListener { requestVideoFullscreenWithFallback() }
         btnExitFull.setOnClickListener { requestExitFullscreen() }
         btnOrientation.setOnClickListener { cycleOrientationMode() }
@@ -382,7 +434,10 @@ class BrowserActivity : AppCompatActivity() {
             }
             override fun onStartTrackingTouch(s: SeekBar) { isUserSeeking = true }
             override fun onStopTrackingTouch(s: SeekBar) {
-                eval("NativeVideo.seekTo(${currentDuration * s.progress / s.max})")
+                val target = currentDuration * s.progress / s.max
+                evalBool("NativeVideo.seekTo($target)") { ok ->
+                    if (!ok) Toast.makeText(this@BrowserActivity, "此视频暂不支持拖动", Toast.LENGTH_SHORT).show()
+                }
                 isUserSeeking = false
             }
         }
@@ -398,7 +453,9 @@ class BrowserActivity : AppCompatActivity() {
     private fun handleDoubleTap() {
         val now = System.currentTimeMillis()
         if (now - lastNativeTapTime < 320) {
-            eval("NativeVideo.toggle()")
+            evalBool("NativeVideo.toggle()") { ok ->
+                if (!ok) Toast.makeText(this, "未绑定可控视频", Toast.LENGTH_SHORT).show()
+            }
             lastNativeTapTime = 0L
         } else {
             lastNativeTapTime = now
@@ -431,8 +488,9 @@ class BrowserActivity : AppCompatActivity() {
                     longPressRunnable = Runnable {
                         longPressTriggered = true
                         oldRate = currentRate
-                        eval("NativeVideo.setRate(2.0)")
-                        Toast.makeText(this, "2.0x", Toast.LENGTH_SHORT).show()
+                        evalBool("NativeVideo.setRate(2.0)") { ok ->
+                            if (ok) Toast.makeText(this, "2.0x", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     handler.postDelayed(longPressRunnable!!, 450)
                     true
@@ -462,14 +520,17 @@ class BrowserActivity : AppCompatActivity() {
                     val dt = System.currentTimeMillis() - downTime
 
                     if (longPressTriggered) {
-                        eval("NativeVideo.setRate($oldRate)")
-                        Toast.makeText(this, "恢复倍速", Toast.LENGTH_SHORT).show()
+                        evalBool("NativeVideo.setRate($oldRate)") { ok ->
+                            if (ok) Toast.makeText(this, "恢复倍速", Toast.LENGTH_SHORT).show()
+                        }
                         return@setOnTouchListener true
                     }
 
                     if (kotlin.math.abs(dx) > 60 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
                         val sec = (dx / 8).toInt()
-                        eval("NativeVideo.seekBy($sec)")
+                        evalBool("NativeVideo.seekBy($sec)") { ok ->
+                            if (!ok) Toast.makeText(this, "此视频暂不支持拖动", Toast.LENGTH_SHORT).show()
+                        }
                         return@setOnTouchListener true
                     }
 
@@ -563,6 +624,9 @@ class BrowserActivity : AppCompatActivity() {
         if (tab != null) {
             tab.url = url
             tab.title = "加载中..."
+            tab.sniffedMediaList.clear()
+            tab.activeVideoId = null
+            tab.videoBindReason = null
         }
     }
 
@@ -572,11 +636,12 @@ class BrowserActivity : AppCompatActivity() {
             if (result == "true") {
                 viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
             } else {
-                Toast.makeText(this, "未发现可接管的视频", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "未发现可直接接管的视频，可能在 iframe 跨域沙盒中", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
+    @SuppressLint("SetTextI18n")
     private fun showToolMenu() {
         val dialog = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.preview_toolbox, null)
@@ -603,6 +668,31 @@ class BrowserActivity : AppCompatActivity() {
             forceVideoTakeover()
             dialog.dismiss()
         }
+
+        // V2 调试展示
+        val txtDebug = view.findViewById<TextView>(R.id.txtDebugInfo)
+        if (txtDebug != null) {
+            val tab = tabs.getOrNull(activeTabIndex)
+            val info = StringBuilder()
+            info.append("当前绑定视频:\n")
+            if (activeVideoId != null) {
+                info.append("  ID: $activeVideoId\n")
+                info.append("  Reason: $videoBindReason\n")
+                info.append("  State: ${if (isPaused) "Paused" else "Playing"} (${formatTime(currentPosition)}/${formatTime(currentDuration)})\n")
+            } else {
+                info.append("  无绑定 (DOM 未接管)\n")
+            }
+            info.append("\n嗅探流 (诊断):\n")
+            if (tab != null && tab.sniffedMediaList.isNotEmpty()) {
+                tab.sniffedMediaList.forEach {
+                    info.append("  - $it\n")
+                }
+            } else {
+                info.append("  未嗅探到媒体流\n")
+            }
+            txtDebug.text = info.toString()
+        }
+
         dialog.show()
     }
 
@@ -645,6 +735,7 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun applyUiMode(mode: BrowserViewModel.UiMode) {
         val isHome = mode == BrowserViewModel.UiMode.HOME
+        val isWeb = mode == BrowserViewModel.UiMode.WEB
         val isFloating = mode == BrowserViewModel.UiMode.FLOATING
         val isCustomFull = mode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM
         val isPseudoFull = mode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO
@@ -658,7 +749,7 @@ class BrowserActivity : AppCompatActivity() {
             else -> View.VISIBLE
         }
 
-        bottomBar.visibility = if (mode == BrowserViewModel.UiMode.WEB || isFloating) View.VISIBLE else View.GONE
+        bottomBar.visibility = if (isHome || isWeb || isFloating) View.VISIBLE else View.GONE
 
         floatingControls.visibility = if (isFloating) View.VISIBLE else View.GONE
         floatingGestureLayer.visibility = if (isFloating) View.VISIBLE else View.GONE
@@ -702,19 +793,10 @@ class BrowserActivity : AppCompatActivity() {
             callback.onCustomViewHidden()
             return
         }
-
         customView = view
         customViewCallback = callback
-
         fullscreenContainer.removeAllViews()
-        fullscreenContainer.addView(
-            view,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
+        fullscreenContainer.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         applyOrientationMode()
         viewModel.setUiMode(BrowserViewModel.UiMode.FULLSCREEN_CUSTOM)
     }
@@ -788,6 +870,12 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun eval(js: String) { getActiveWebView()?.evaluateJavascript(js, null) }
+    
+    private fun evalBool(js: String, onResult: (Boolean) -> Unit = {}) {
+        getActiveWebView()?.evaluateJavascript(js) { result ->
+            onResult(result == "true")
+        }
+    }
 
     private fun hideSystemBars() {
         if (Build.VERSION.SDK_INT >= 30) {
@@ -815,27 +903,40 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     inner class VideoBridge(private val wv: WebView) {
+        
         @JavascriptInterface
-        fun onVideoDetected(title: String, paused: Boolean, curr: Double, dur: Double) {
+        fun onVideoDetected(title: String, videoId: String, paused: Boolean, curr: Double, dur: Double) {
             runOnUiThread {
                 val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
                 tab.hasVideo = true
                 tab.isVideoPaused = paused
-                if (getActiveWebView() == wv && !paused) {
-                    if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM &&
-                        viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
-                        viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
-                    }
+
+                if (getActiveWebView() != wv) return@runOnUiThread
+
+                if (this@BrowserActivity.activeVideoId == videoId) {
+                    currentPosition = curr
+                    currentDuration = dur
+                    isPaused = paused
+                    updateProgressUi()
                 }
             }
         }
 
-        @JavascriptInterface fun onVideoActivated(title: String) {
+        @JavascriptInterface 
+        fun onVideoActivated(title: String, videoId: String, reason: String) {
             runOnUiThread { 
                 val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
                 tab.hasVideo = true
                 tab.isVideoPaused = false
+                tab.activeVideoId = videoId
+                tab.videoBindReason = reason
+                
                 if (getActiveWebView() != wv) return@runOnUiThread
+                
+                this@BrowserActivity.activeVideoId = videoId
+                this@BrowserActivity.videoBindReason = reason
+                this@BrowserActivity.lastVideoActivatedAt = System.currentTimeMillis()
+
                 if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM &&
                     viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
                     viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING) 
@@ -843,15 +944,45 @@ class BrowserActivity : AppCompatActivity() {
             }
         }
         
-        @JavascriptInterface fun onProgress(curr: Double, dur: Double, paused: Boolean, rate: Double) {
+        @JavascriptInterface 
+        fun onProgress(videoId: String, curr: Double, dur: Double, paused: Boolean, rate: Double) {
             runOnUiThread {
                 if (getActiveWebView() != wv) return@runOnUiThread
+                
+                // V2: 防止其他广告视频的 timeupdate 污染主进度
+                if (this@BrowserActivity.activeVideoId != null && this@BrowserActivity.activeVideoId != videoId) {
+                    return@runOnUiThread
+                }
+
+                this@BrowserActivity.activeVideoId = videoId
                 currentPosition = curr
                 currentDuration = dur
                 isPaused = paused
                 currentRate = rate
+                this@BrowserActivity.lastVideoProgressAt = System.currentTimeMillis()
+                
+                val tab = tabs.find { it.webView == wv }
+                if (tab != null) {
+                    tab.isVideoPaused = paused
+                }
+                
                 viewModel.updateVideoState(curr, dur, paused)
                 updateProgressUi()
+            }
+        }
+        
+        @JavascriptInterface 
+        fun onVideoLost(videoId: String, reason: String) {
+            runOnUiThread {
+                if (this@BrowserActivity.activeVideoId != videoId) return@runOnUiThread
+
+                this@BrowserActivity.activeVideoId = null
+                
+                if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM &&
+                    viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
+                    viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
+                }
+                Toast.makeText(this@BrowserActivity, "视频接管已失效: $reason", Toast.LENGTH_SHORT).show()
             }
         }
         
