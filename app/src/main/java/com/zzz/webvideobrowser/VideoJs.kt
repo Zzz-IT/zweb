@@ -493,7 +493,9 @@ object VideoJs {
     listVideos: function () {
       scanVideos();
       const videos = Array.from(document.querySelectorAll("video"));
+
       return videos.map(function (video, index) {
+        const src = video.currentSrc || video.src || "";
         return {
           index: index,
           id: getVideoId(video),
@@ -502,14 +504,18 @@ object VideoJs {
           currentTime: Number(video.currentTime || 0),
           duration: Number(video.duration || 0),
           readyState: Number(video.readyState || 0),
-          currentSrc: video.currentSrc || "",
+          currentSrc: src,
           src: video.src || "",
+          isBlob: src.indexOf("blob:") === 0,
+          isPlayable: video.readyState >= 2 ||
+                      video.currentTime > 0 ||
+                      (isFinite(video.duration) && video.duration > 0),
           width: Number(video.videoWidth || 0),
           height: Number(video.videoHeight || 0),
           score: videoScore(video)
         };
       }).filter(function (item) {
-        return item.score > 0 || item.readyState > 0 || item.currentSrc || item.src;
+        return item.isPlayable || item.score > 0 || item.currentSrc || item.src;
       });
     },
     activateById: function (id) {

@@ -891,12 +891,24 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun forceVideoTakeover() {
-        val wv = getActiveWebView() ?: return
-        wv.evaluateJavascript("NativeVideo.forceActivate()") { result ->
-            if (result == "true") {
-                enterPseudoFullscreen()
-            } else {
-                Toast.makeText(this, "未发现可直接接管的视频，可能在 iframe 跨域沙盒中", Toast.LENGTH_SHORT).show()
+        refreshDomVideoCandidates {
+            val candidates = resourceRegistry.listSorted()
+                .filter { it.type == CandidateType.DOM_VIDEO || it.type == CandidateType.DOM_BLOB_VIDEO }
+
+            when {
+                candidates.size == 1 -> {
+                    enterFullscreenForDomVideo(candidates.first())
+                }
+                candidates.size > 1 -> {
+                    showVideoCandidateSheet()
+                }
+                else -> {
+                    Toast.makeText(
+                        this,
+                        "未发现可接管的视频，请先点击网页播放，或尝试进入 iframe 播放器页。",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
@@ -1616,6 +1628,7 @@ class BrowserActivity : AppCompatActivity() {
                 ?.replace("\\\\", "\\") ?: ""
 
             resourceRegistry.removeTypeForPage(CandidateType.DOM_VIDEO, wv.url)
+            resourceRegistry.removeTypeForPage(CandidateType.DOM_BLOB_VIDEO, wv.url)
 
             try {
                 val arr = org.json.JSONArray(text)
@@ -1624,21 +1637,24 @@ class BrowserActivity : AppCompatActivity() {
                     val id = item.optString("id")
                     val title = item.optString("title", "页面内视频")
                     val src = item.optString("currentSrc", "")
+                    val isBlob = item.optBoolean("isBlob", src.startsWith("blob:", ignoreCase = true))
+                    val isPlayable = item.optBoolean("isPlayable", false)
 
-                    if (id.isNotBlank()) {
+                    if (id.isNotBlank() && isPlayable) {
+                        val type = if (isBlob) CandidateType.DOM_BLOB_VIDEO else CandidateType.DOM_VIDEO
                         resourceRegistry.upsert(
                             VideoCandidate(
                                 id = "dom:${wv.url}:$id",
-                                type = CandidateType.DOM_VIDEO,
-                                title = title.ifBlank { "页面内视频" },
+                                type = type,
+                                title = if (isBlob) "页面内 blob 视频" else title.ifBlank { "页面内视频" },
                                 url = src.ifBlank { null },
                                 pageUrl = wv.url,
                                 frameSrc = null,
                                 videoId = id,
                                 host = android.net.Uri.parse(wv.url ?: "").host,
                                 score = item.optInt("score", 1000),
-                                confidence = 90,
-                                reason = "manual-rescan"
+                                confidence = if (isBlob) 98 else 90,
+                                reason = if (isBlob) "dom-blob-video" else "manual-rescan"
                             )
                         )
                     }
