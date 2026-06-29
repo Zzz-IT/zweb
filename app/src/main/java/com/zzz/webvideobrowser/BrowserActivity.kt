@@ -2032,7 +2032,7 @@ class BrowserActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 1001 && resultCode == Activity.RESULT_OK) {
             data?.getStringExtra("url")?.let { url ->
-                loadUrl(url)
+                openUrl(url)
             }
         }
     }
