@@ -18,7 +18,7 @@
             android:layout_centerVertical="true"
             android:layout_marginStart="8dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_close"
+            android:src="@drawable/ic_arrow_back"
             android:scaleType="centerInside" />
 
         <LinearLayout
