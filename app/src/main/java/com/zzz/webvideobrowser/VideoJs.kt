@@ -356,6 +356,7 @@ object VideoJs {
   }
 
   let theaterVideo = null;
+  let theaterRoot = null;
   let theaterSnapshot = null;
 
   function enterTheaterById(id) {
@@ -371,33 +372,43 @@ object VideoJs {
 
     if (!video) return false;
 
+    exitTheater();
+
     theaterVideo = video;
-    activeVideo = video;
 
     theaterSnapshot = {
       bodyOverflow: document.body.style.overflow,
       htmlOverflow: document.documentElement.style.overflow,
+      parent: video.parentNode,
+      nextSibling: video.nextSibling,
       videoStyle: video.getAttribute("style") || "",
-      parentStyle: video.parentElement ? (video.parentElement.getAttribute("style") || "") : ""
+      videoClass: video.getAttribute("class") || "",
+      controls: video.hasAttribute("controls")
     };
 
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
 
-    const parent = video.parentElement || video;
+    theaterRoot = document.createElement("div");
+    theaterRoot.id = "__zweb_theater_root__";
+    theaterRoot.style.position = "fixed";
+    theaterRoot.style.left = "0";
+    theaterRoot.style.top = "0";
+    theaterRoot.style.width = "100vw";
+    theaterRoot.style.height = "100vh";
+    theaterRoot.style.zIndex = "2147483646";
+    theaterRoot.style.background = "#000";
+    theaterRoot.style.display = "flex";
+    theaterRoot.style.alignItems = "center";
+    theaterRoot.style.justifyContent = "center";
+    theaterRoot.style.pointerEvents = "none";
 
-    parent.style.position = "fixed";
-    parent.style.left = "0";
-    parent.style.top = "0";
-    parent.style.width = "100vw";
-    parent.style.height = "100vh";
-    parent.style.zIndex = "2147483646";
-    parent.style.background = "#000";
-    parent.style.display = "flex";
-    parent.style.alignItems = "center";
-    parent.style.justifyContent = "center";
+    document.documentElement.appendChild(theaterRoot);
+    theaterRoot.appendChild(video);
 
     video.style.position = "relative";
+    video.style.left = "auto";
+    video.style.top = "auto";
     video.style.width = "100vw";
     video.style.height = "100vh";
     video.style.maxWidth = "100vw";
@@ -407,28 +418,68 @@ object VideoJs {
     video.style.opacity = "1";
     video.style.visibility = "visible";
     video.style.display = "block";
+    video.style.zIndex = "2147483647";
+    video.style.pointerEvents = "auto";
 
-    activateVideo(video, "manual-theater");
+    video.removeAttribute("controls");
+
+    activeVideo = video;
+    activateVideo(video, "manual-theater-video-only");
+
     return true;
   }
 
   function exitTheater() {
-    if (!theaterVideo || !theaterSnapshot) return false;
+    if (!theaterVideo || !theaterSnapshot) {
+      if (theaterRoot && theaterRoot.parentNode) {
+        theaterRoot.parentNode.removeChild(theaterRoot);
+      }
+      theaterRoot = null;
+      return false;
+    }
 
     const video = theaterVideo;
-    const parent = video.parentElement;
+    const snap = theaterSnapshot;
 
-    document.body.style.overflow = theaterSnapshot.bodyOverflow || "";
-    document.documentElement.style.overflow = theaterSnapshot.htmlOverflow || "";
+    try {
+      if (snap.parent) {
+        if (snap.nextSibling && snap.nextSibling.parentNode === snap.parent) {
+          snap.parent.insertBefore(video, snap.nextSibling);
+        } else {
+          snap.parent.appendChild(video);
+        }
+      }
 
-    video.setAttribute("style", theaterSnapshot.videoStyle || "");
+      if (snap.videoStyle) {
+        video.setAttribute("style", snap.videoStyle);
+      } else {
+        video.removeAttribute("style");
+      }
 
-    if (parent) {
-      parent.setAttribute("style", theaterSnapshot.parentStyle || "");
+      if (snap.videoClass) {
+        video.setAttribute("class", snap.videoClass);
+      } else {
+        video.removeAttribute("class");
+      }
+
+      if (snap.controls) {
+        video.setAttribute("controls", "");
+      } else {
+        video.removeAttribute("controls");
+      }
+
+      document.body.style.overflow = snap.bodyOverflow || "";
+      document.documentElement.style.overflow = snap.htmlOverflow || "";
+    } catch (e) {}
+
+    if (theaterRoot && theaterRoot.parentNode) {
+      theaterRoot.parentNode.removeChild(theaterRoot);
     }
 
     theaterVideo = null;
+    theaterRoot = null;
     theaterSnapshot = null;
+
     return true;
   }
 

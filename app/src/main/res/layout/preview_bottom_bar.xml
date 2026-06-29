@@ -15,68 +15,104 @@
         android:progressTint="#007AFF"
         android:visibility="gone" />
 
-    <LinearLayout
-        android:id="@+id/bottomBarContent"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="72dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingLeft="12dp"
-        android:paddingRight="12dp">
+        android:layout_height="wrap_content">
 
-    <LinearLayout
-        android:id="@+id/addressTouchArea"
-        android:layout_width="0dp"
-        android:layout_height="48dp"
-        android:layout_weight="1"
-        android:layout_marginRight="8dp"
-        android:background="@drawable/bg_search_bar"
-        android:gravity="center_vertical"
-        android:paddingLeft="16dp"
-        android:paddingRight="4dp">
+        <LinearLayout
+            android:id="@+id/bottomBarContent"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp">
 
-        <EditText
-            android:id="@+id/urlInput"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:hint="搜索或输入网址"
-            android:textColorHint="#999999"
-            android:singleLine="true"
-            android:textSize="15sp" />
+            <FrameLayout
+                android:id="@+id/addressContainerFrame"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp">
 
-        <ImageButton
-            android:id="@+id/btnGo"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_go"
-            android:scaleType="centerInside" />
-    </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/addressTouchArea"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/bg_search_bar"
+                    android:paddingLeft="16dp"
+                    android:paddingRight="12dp">
 
-    <ImageButton
-        android:id="@+id/btnHome"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:src="@drawable/ic_home"
-        android:scaleType="centerInside" />
+                    <EditText
+                        android:id="@+id/urlInput"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:background="@android:color/transparent"
+                        android:hint="搜索或输入网址"
+                        android:textColorHint="#999999"
+                        android:singleLine="true"
+                        android:textSize="15sp" />
+                </LinearLayout>
 
-    <ImageButton
-        android:id="@+id/btnTabs"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:src="@drawable/ic_tabs"
-        android:scaleType="centerInside" />
+                <View
+                    android:id="@+id/bottomBarGestureLayer"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@android:color/transparent"
+                    android:clickable="true"
+                    android:focusable="false" />
 
-    <ImageButton
-        android:id="@+id/btnTool"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:src="@drawable/ic_tool"
-        android:scaleType="centerInside" />
-    </LinearLayout>
+            </FrameLayout>
+
+            <ImageButton
+                android:id="@+id/btnGo"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_go"
+                android:scaleType="centerInside" />
+
+            <ImageButton
+                android:id="@+id/btnHome"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_home"
+                android:scaleType="centerInside" />
+
+            <ImageButton
+                android:id="@+id/btnTabs"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_tabs"
+                android:scaleType="centerInside" />
+
+            <ImageButton
+                android:id="@+id/btnTool"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_tool"
+                android:scaleType="centerInside" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/bottomGestureHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:background="@drawable/bg_seek_overlay"
+            android:visibility="gone" />
+
+    </FrameLayout>
 </LinearLayout>

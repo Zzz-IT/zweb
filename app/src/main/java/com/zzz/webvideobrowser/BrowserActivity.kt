@@ -66,7 +66,10 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var homeLayer: View
     private lateinit var bottomBar: View
     private lateinit var bottomBarContent: View
+    private lateinit var addressContainerFrame: View
+    private lateinit var bottomBarGestureLayer: View
     private lateinit var addressTouchArea: View
+    private lateinit var bottomGestureHint: TextView
     private lateinit var progressBar: ProgressBar
 
     private lateinit var homeSearchInput: EditText
@@ -80,6 +83,7 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var btnResourceHub: ImageButton
     private val resourceRegistry = ResourceRegistry()
     private lateinit var browserSettings: BrowserSettings
+    private lateinit var adBlockEngine: AdBlockEngine
 
     private lateinit var fullscreenContainer: FrameLayout
     private lateinit var fullscreenControls: View
@@ -120,6 +124,7 @@ class BrowserActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         browserSettings = BrowserSettings(this)
+        adBlockEngine = AdBlockEngine(this)
         viewModel = ViewModelProvider(this)[BrowserViewModel::class.java]
         val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         WebView.setWebContentsDebuggingEnabled(isDebuggable)
@@ -133,7 +138,8 @@ class BrowserActivity : AppCompatActivity() {
         createNewTab("about:blank")
         
         setupHome()
-        setupBottomBar()
+        setupBottomBarGesture()
+        setupPlayerControls()
         setupPlayerControls()
     }
 
@@ -157,7 +163,10 @@ class BrowserActivity : AppCompatActivity() {
         homeLayer = findViewById(R.id.homeLayer)
         bottomBar = findViewById(R.id.bottomBar)
         bottomBarContent = findViewById(R.id.bottomBarContent)
+        addressContainerFrame = findViewById(R.id.addressContainerFrame)
+        bottomBarGestureLayer = findViewById(R.id.bottomBarGestureLayer)
         addressTouchArea = findViewById(R.id.addressTouchArea)
+        bottomGestureHint = findViewById(R.id.bottomGestureHint)
         progressBar = findViewById(R.id.progressBar)
 
         homeSearchInput = findViewById(R.id.homeSearchInput)
@@ -220,8 +229,14 @@ class BrowserActivity : AppCompatActivity() {
             
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 if (browserSettings.enableAdBlock) {
-                    val url = request.url.toString().lowercase(java.util.Locale.US)
-                    if (url.contains("googleads") || url.contains("doubleclick.net") || url.contains("adsystem") || url.contains("/ad/") || url.contains("ad.doubleclick")) {
+                    val url = request.url.toString()
+                    if (adBlockEngine.shouldBlock(url)) {
+                        return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                    }
+                    
+                    // Fallback to simple rules
+                    val lowerUrl = url.lowercase(java.util.Locale.US)
+                    if (lowerUrl.contains("googleads") || lowerUrl.contains("doubleclick.net") || lowerUrl.contains("adsystem") || lowerUrl.contains("/ad/") || lowerUrl.contains("ad.doubleclick")) {
                         return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
                     }
                 }
@@ -433,43 +448,66 @@ class BrowserActivity : AppCompatActivity() {
 
     private var barDownX = 0f
     private var barDownY = 0f
+    private var barDownTime = 0L
     private var barDragging = false
     private var barGestureType = BarGestureType.NONE
 
     private enum class BarGestureType {
-        NONE, HORIZONTAL, PULL_REFRESH
+        NONE, HORIZONTAL_NAV, PULL_REFRESH
     }
 
-    private fun updateBottomBarNavHint(dx: Float, canBack: Boolean, canForward: Boolean) {
-        // Option to add visual hints here
+    private fun rubberBand(value: Float, limit: Float): Float {
+        val sign = if (value >= 0f) 1f else -1f
+        val abs = kotlin.math.abs(value)
+        return sign * (limit * abs / (abs + limit))
+    }
+
+    private fun focusUrlInput() {
+        urlInput.requestFocus()
+        urlInput.setSelection(urlInput.text?.length ?: 0)
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.showSoftInput(urlInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun updateBottomBarSwipeHint(dx: Float, canBack: Boolean, canForward: Boolean) {
+        bottomGestureHint.visibility = View.VISIBLE
+        bottomGestureHint.text = when {
+            dx > 0 && canBack -> "松手后退"
+            dx > 0 && !canBack -> "没有上一页"
+            dx < 0 && canForward -> "松手前进"
+            dx < 0 && !canForward -> "没有下一页"
+            else -> ""
+        }
     }
 
     private fun updateBottomBarRefreshHint(pull: Float) {
-        // Option to add visual hints here
+        bottomGestureHint.visibility = View.VISIBLE
+        bottomGestureHint.text = if (pull > 56f) "松手刷新" else "上滑刷新"
+    }
+
+    private fun hideBottomBarSwipeHint() {
+        bottomGestureHint.visibility = View.GONE
     }
 
     private fun bounceBottomBar(fromX: Float, fromY: Float) {
-        bottomBarContent.translationX = fromX
-        bottomBarContent.translationY = fromY
+        bottomBar.translationX = fromX
+        bottomBar.translationY = fromY
 
-        bottomBarContent.animate()
+        bottomBar.animate()
             .translationX(0f)
             .translationY(0f)
-            .setDuration(220)
-            .setInterpolator(android.view.animation.OvershootInterpolator(1.6f))
+            .setDuration(240)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.45f))
             .withEndAction {
-                resetBottomBarGesture()
+                barDragging = false
+                barGestureType = BarGestureType.NONE
+                hideBottomBarSwipeHint()
             }
             .start()
     }
 
-    private fun resetBottomBarGesture() {
-        barDragging = false
-        barGestureType = BarGestureType.NONE
-    }
-
     @SuppressLint("ClickableViewAccessibility")
-    private fun setupBottomBar() {
+    private fun setupBottomBarGesture() {
         btnGo.setOnClickListener { openInput(urlInput.text.toString()) }
         urlInput.setOnEditorActionListener { _, _, _ ->
             openInput(urlInput.text.toString())
@@ -478,60 +516,81 @@ class BrowserActivity : AppCompatActivity() {
 
         btnHome.setOnClickListener { viewModel.setUiMode(BrowserViewModel.UiMode.HOME) }
         btnTabs.setOnClickListener { showTabsMenu() }
+        btnTabs.setOnLongClickListener {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("清除窗口")
+                .setMessage("确定要关闭所有窗口吗？")
+                .setPositiveButton("确定") { _, _ ->
+                    val size = tabs.size
+                    for (i in size - 1 downTo 0) {
+                        closeTab(i)
+                    }
+                    if (tabs.isEmpty()) {
+                        createNewTab("about:blank")
+                    }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            true
+        }
         btnTool.setOnClickListener { showToolMenu() }
 
-        bottomBarContent.setOnTouchListener { _, event ->
-            if (urlInput.hasFocus()) return@setOnTouchListener false
-
+        bottomBarGestureLayer.setOnTouchListener { _, event ->
             val wv = getActiveWebView()
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    barDownX = event.x
-                    barDownY = event.y
+                    barDownX = event.rawX
+                    barDownY = event.rawY
+                    barDownTime = System.currentTimeMillis()
                     barDragging = false
                     barGestureType = BarGestureType.NONE
-                    bottomBarContent.animate().cancel()
-                    false
+
+                    bottomBar.animate().cancel()
+                    bottomBar.translationX = 0f
+                    bottomBar.translationY = 0f
+
+                    true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = event.x - barDownX
-                    val dy = event.y - barDownY
+                    val dx = event.rawX - barDownX
+                    val dy = event.rawY - barDownY
                     val absDx = kotlin.math.abs(dx)
                     val absDy = kotlin.math.abs(dy)
 
                     if (!barDragging) {
                         when {
-                            absDx > 28 && absDx > absDy * 1.5f -> {
+                            absDx > 18f && absDx > absDy * 1.25f -> {
                                 barDragging = true
-                                barGestureType = BarGestureType.HORIZONTAL
+                                barGestureType = BarGestureType.HORIZONTAL_NAV
+                                hideKeyboardAndClearFocus()
                             }
 
-                            -dy > 28 && absDy > absDx * 1.4f -> {
+                            -dy > 18f && absDy > absDx * 1.25f -> {
                                 barDragging = true
                                 barGestureType = BarGestureType.PULL_REFRESH
+                                hideKeyboardAndClearFocus()
                             }
                         }
                     }
 
-                    if (!barDragging) return@setOnTouchListener false
+                    if (!barDragging) {
+                        return@setOnTouchListener true
+                    }
 
                     when (barGestureType) {
-                        BarGestureType.HORIZONTAL -> {
-                            val limitedDx = dx.coerceIn(-96f, 96f)
-                            bottomBarContent.translationX = limitedDx
-
-                            updateBottomBarNavHint(
-                                dx = limitedDx,
-                                canBack = wv?.canGoBack() == true,
-                                canForward = wv?.canGoForward() == true
-                            )
+                        BarGestureType.HORIZONTAL_NAV -> {
+                            val drag = rubberBand(dx, 140f)
+                            bottomBar.translationX = drag
+                            bottomBar.translationY = 0f
+                            updateBottomBarSwipeHint(drag, wv?.canGoBack() == true, wv?.canGoForward() == true)
                         }
 
                         BarGestureType.PULL_REFRESH -> {
-                            val pull = (-dy).coerceIn(0f, 72f)
-                            bottomBarContent.translationY = -pull
+                            val pull = rubberBand(-dy, 96f).coerceAtLeast(0f)
+                            bottomBar.translationY = -pull
+                            bottomBar.translationX = 0f
                             updateBottomBarRefreshHint(pull)
                         }
 
@@ -542,49 +601,57 @@ class BrowserActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val dx = event.rawX - barDownX
+                    val dy = event.rawY - barDownY
+                    val dt = System.currentTimeMillis() - barDownTime
+
                     if (!barDragging) {
-                        resetBottomBarGesture()
-                        return@setOnTouchListener false
+                        bounceBottomBar(0f, 0f)
+
+                        if (dt < 220 && kotlin.math.abs(dx) < 12f && kotlin.math.abs(dy) < 12f) {
+                            focusUrlInput()
+                        }
+
+                        return@setOnTouchListener true
                     }
 
-                    val dx = event.x - barDownX
-                    val dy = event.y - barDownY
-
                     when (barGestureType) {
-                        BarGestureType.HORIZONTAL -> {
+                        BarGestureType.HORIZONTAL_NAV -> {
                             when {
-                                dx > 96 && wv?.canGoBack() == true -> {
+                                dx > 96f && wv?.canGoBack() == true -> {
                                     wv.goBack()
-                                    bounceBottomBar(fromX = 72f, fromY = 0f)
+                                    bounceBottomBar(72f, 0f)
                                 }
 
-                                dx < -96 && wv?.canGoForward() == true -> {
+                                dx < -96f && wv?.canGoForward() == true -> {
                                     wv.goForward()
-                                    bounceBottomBar(fromX = -72f, fromY = 0f)
+                                    bounceBottomBar(-72f, 0f)
                                 }
 
                                 else -> {
-                                    bounceBottomBar(fromX = bottomBarContent.translationX, fromY = 0f)
+                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
                                 }
                             }
                         }
 
                         BarGestureType.PULL_REFRESH -> {
-                            if (-dy > 72) {
+                            if (-dy > 72f) {
                                 wv?.reload()
-                                bounceBottomBar(fromX = 0f, fromY = -56f)
+                                bounceBottomBar(0f, -56f)
                             } else {
-                                bounceBottomBar(fromX = 0f, fromY = bottomBarContent.translationY)
+                                bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
                             }
                         }
 
-                        else -> resetBottomBarGesture()
+                        else -> {
+                            bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                        }
                     }
 
                     true
                 }
 
-                else -> false
+                else -> true
             }
         }
     }
@@ -945,30 +1012,51 @@ class BrowserActivity : AppCompatActivity() {
         val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
         bottomSheet?.setBackgroundResource(android.R.color.transparent)
 
+        val recyclerView = view.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.tabRecyclerView)
+        recyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        recyclerView.itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator()
+
+        val adapter = object : androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder>() {
+            override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): androidx.recyclerview.widget.RecyclerView.ViewHolder {
+                val itemView = layoutInflater.inflate(R.layout.item_tab, parent, false)
+                return object : androidx.recyclerview.widget.RecyclerView.ViewHolder(itemView) {}
+            }
+
+            override fun onBindViewHolder(holder: androidx.recyclerview.widget.RecyclerView.ViewHolder, position: Int) {
+                val tab = tabs[position]
+                val txtTitle = holder.itemView.findViewById<TextView>(R.id.txtTabTitle)
+                val btnClose = holder.itemView.findViewById<ImageButton>(R.id.btnCloseTab)
+
+                txtTitle.text = if (position == activeTabIndex) "★ ${tab.title}" else tab.title
+
+                holder.itemView.setOnClickListener {
+                    switchTab(holder.bindingAdapterPosition)
+                    dialog.dismiss()
+                }
+
+                btnClose.setOnClickListener {
+                    val pos = holder.bindingAdapterPosition
+                    if (pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
+                        closeTab(pos)
+                        notifyItemRemoved(pos)
+                        notifyItemRangeChanged(pos, tabs.size)
+                    }
+                }
+            }
+
+            override fun getItemCount() = tabs.size
+        }
+        recyclerView.adapter = adapter
+
         view.findViewById<View>(R.id.btnAddTab).setOnClickListener {
             createNewTab("about:blank")
-            dialog.dismiss()
-        }
-        
-        val container = view.findViewById<android.widget.LinearLayout>(R.id.tabListContainer)
-        tabs.forEachIndexed { index, tab ->
-            val tabView = layoutInflater.inflate(R.layout.item_tab, container, false)
-            val txtTitle = tabView.findViewById<TextView>(R.id.txtTabTitle)
-            val btnClose = tabView.findViewById<ImageButton>(R.id.btnCloseTab)
+            adapter.notifyItemInserted(tabs.size - 1)
+            recyclerView.scrollToPosition(tabs.size - 1)
             
-            txtTitle.text = if (index == activeTabIndex) "★ ${tab.title}" else tab.title
-            
-            tabView.setOnClickListener {
-                switchTab(index)
+            // 延迟一点时间再收起弹窗，让用户看到添加的动画
+            view.postDelayed({
                 dialog.dismiss()
-            }
-            
-            btnClose.setOnClickListener {
-                closeTab(index)
-                dialog.dismiss()
-                showTabsMenu() // 重新刷新列表
-            }
-            container.addView(tabView)
+            }, 300)
         }
 
         dialog.show()
@@ -1274,7 +1362,23 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun openStreamFallback(candidate: VideoCandidate) {
-        Toast.makeText(this, "暂不支持原生播放外部流，将来可接入 Media3", Toast.LENGTH_SHORT).show()
+        val streamUrl = candidate.url ?: return
+        
+        playerSourceMode = PlayerSourceMode.STREAM_NATIVE
+        
+        val intent = android.content.Intent(this, StreamPlayerActivity::class.java).apply {
+            putExtra("url", streamUrl)
+            putExtra("title", candidate.title)
+            putExtra("referer", candidate.pageUrl)
+            putExtra("origin", candidate.host?.let { "https://$it" })
+            
+            val wv = getActiveWebView()
+            if (wv != null) {
+                putExtra("userAgent", wv.settings.userAgentString)
+            }
+        }
+        
+        startActivity(intent)
     }
 
     private fun requestExitFullscreen() {

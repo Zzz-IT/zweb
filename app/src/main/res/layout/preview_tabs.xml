@@ -43,17 +43,11 @@
             android:textColor="#007AFF" />
     </RelativeLayout>
 
-    <ScrollView
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tabRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="350dp"
         android:paddingLeft="12dp"
-        android:paddingRight="12dp">
-        <LinearLayout
-            android:id="@+id/tabListContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-            <!-- Dynamic tabs will be injected here -->
-        </LinearLayout>
-    </ScrollView>
+        android:paddingRight="12dp"
+        android:clipToPadding="false" />
 </LinearLayout>
