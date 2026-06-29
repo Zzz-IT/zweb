@@ -95,7 +95,7 @@ class RecordsActivity : AppCompatActivity() {
     private fun loadData() {
         lifecycleScope.launch(Dispatchers.IO) {
             val data = if (isShowingHistory) {
-                db.browserDao().getAllHistory()
+                db.browserDao().getRecentHistory(500)
             } else {
                 db.browserDao().getAllBookmarks()
             }

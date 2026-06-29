@@ -5,7 +5,6 @@ import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
@@ -18,17 +17,12 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
-import android.widget.PopupMenu
-import android.widget.PopupWindow
 import android.widget.ProgressBar
-import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowInsetsControllerCompat
@@ -36,7 +30,6 @@ import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.net.URLEncoder
 import java.util.Locale
-import kotlin.math.roundToInt
 
 class BrowserActivity : AppCompatActivity() {
 
@@ -139,7 +132,6 @@ class BrowserActivity : AppCompatActivity() {
         
         setupHome()
         setupBottomBarGesture()
-        setupPlayerControls()
         setupPlayerControls()
     }
 
@@ -352,7 +344,13 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
+    private const val MAX_TABS = 8
+
     private fun createNewTab(url: String) {
+        if (tabs.size >= MAX_TABS) {
+            Toast.makeText(this, "最多同时打开 $MAX_TABS 个窗口", Toast.LENGTH_SHORT).show()
+            return
+        }
         val wv = createWebView()
         val tab = TabInfo(wv, "主页", url)
         tabs.add(tab)
@@ -368,7 +366,13 @@ class BrowserActivity : AppCompatActivity() {
         if (index !in tabs.indices) return
         activeTabIndex = index
         tabs.forEachIndexed { i, tab ->
-            tab.webView.visibility = if (i == index) View.VISIBLE else View.GONE
+            if (i == index) {
+                tab.webView.visibility = View.VISIBLE
+                tab.webView.onResume()
+            } else {
+                tab.webView.visibility = View.GONE
+                tab.webView.onPause()
+            }
         }
         
         val tab = tabs[index]
@@ -927,14 +931,85 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun showDiagnosisDialog(text: String) {
+        val tab = tabs.getOrNull(activeTabIndex)
+        var hlsCount = 0
+        var fragmentCount = 0
+        var iframeCount = 0
+        var blobCount = 0
+        var domCount = 0
+        var mp4Count = 0
+        var dashCount = 0
+        
+        tab?.sniffedMediaList?.forEach {
+            if (it.contains("HLS_MASTER") || it.contains("HLS_MEDIA")) hlsCount++
+            else if (it.contains("FRAGMENT")) fragmentCount++
+            else if (it.contains("MP4")) mp4Count++
+            else if (it.contains("DASH")) dashCount++
+        }
+        
+        resourceRegistry.listSorted().forEach {
+            when (it.type) {
+                CandidateType.DOM_VIDEO -> domCount++
+                CandidateType.DOM_BLOB_VIDEO -> blobCount++
+                CandidateType.IFRAME_PLAYER -> iframeCount++
+                else -> {}
+            }
+        }
+        
+        val summary = StringBuilder().apply {
+            append("页面诊断摘要\n")
+            append("------------------------\n")
+            append("- DOM video：$domCount\n")
+            append("- blob video：$blobCount\n")
+            append("- iframe：$iframeCount\n")
+            append("- 当前 active：${activeVideoId ?: "无"}\n")
+            append("------------------------\n")
+            append("- 嗅探 HLS：$hlsCount\n")
+            append("- 嗅探 MP4：$mp4Count\n")
+            append("- 嗅探 DASH：$dashCount\n")
+            append("- 嗅探分片：$fragmentCount\n")
+            append("------------------------\n")
+            append("建议：优先使用 DOM 或 iframe 接管，媒体直链不作为入口。\n\n\n")
+        }.toString()
+
         BottomSheetDialog(this).apply {
+            val layout = android.widget.LinearLayout(this@BrowserActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(dp(20), dp(20), dp(20), dp(20))
+            }
+            
+            val scrollView = android.widget.ScrollView(this@BrowserActivity).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 
+                    0, 1f
+                )
+            }
+            
             val tv = TextView(this@BrowserActivity).apply {
                 setTextIsSelectable(true)
-                this.text = text
-                setPadding(32, 32, 32, 32)
+                this.text = summary + "完整 JSON 数据：\n" + text
                 textSize = 12f
+                setTextColor(android.graphics.Color.parseColor("#333333"))
             }
-            setContentView(tv)
+            scrollView.addView(tv)
+            layout.addView(scrollView)
+            
+            val btnCopy = TextView(this@BrowserActivity).apply {
+                this.text = "复制完整诊断 JSON"
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(15), 0, dp(15))
+                textSize = 14f
+                setTextColor(android.graphics.Color.parseColor("#007AFF"))
+                background = androidx.core.content.ContextCompat.getDrawable(this@BrowserActivity, R.drawable.bg_bottom_sheet)
+                setOnClickListener {
+                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("诊断数据", text))
+                    Toast.makeText(this@BrowserActivity, "已复制", Toast.LENGTH_SHORT).show()
+                }
+            }
+            layout.addView(btnCopy)
+            
+            setContentView(layout)
             show()
         }
     }
@@ -1082,6 +1157,10 @@ class BrowserActivity : AppCompatActivity() {
         recyclerView.adapter = adapter
 
         view.findViewById<View>(R.id.btnAddTab).setOnClickListener {
+            if (tabs.size >= MAX_TABS) {
+                Toast.makeText(this@BrowserActivity, "最多同时打开 $MAX_TABS 个窗口", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             val wv = createWebView()
             val tab = TabInfo(wv, "主页", "about:blank")
             tabs.add(tab)
@@ -1405,7 +1484,9 @@ class BrowserActivity : AppCompatActivity() {
             return
         }
 
-        candidates.forEach { candidate ->
+        val visibleCandidates = candidates.take(50)
+        
+        visibleCandidates.forEach { candidate ->
             val item = layoutInflater.inflate(R.layout.item_video_candidate, container, false)
 
             val title = item.findViewById<TextView>(R.id.txtCandidateTitle)
@@ -1428,6 +1509,17 @@ class BrowserActivity : AppCompatActivity() {
             }
 
             container.addView(item)
+        }
+        
+        if (candidates.size > 50) {
+            val limitMsg = TextView(this).apply {
+                text = "仅显示前 50 项，请使用分类标签筛选"
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp(24), dp(24), dp(24), dp(48))
+                textSize = 12f
+                setTextColor(android.graphics.Color.parseColor("#8E8E93"))
+            }
+            container.addView(limitMsg)
         }
     }
 

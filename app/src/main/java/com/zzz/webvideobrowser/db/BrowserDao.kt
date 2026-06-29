@@ -13,8 +13,8 @@ interface BrowserDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHistory(record: HistoryRecord)
 
-    @Query("SELECT * FROM history_records ORDER BY timestamp DESC")
-    suspend fun getAllHistory(): List<HistoryRecord>
+    @Query("SELECT * FROM history_records ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentHistory(limit: Int = 500): List<HistoryRecord>
 
     @Query("DELETE FROM history_records")
     suspend fun clearAllHistory()
