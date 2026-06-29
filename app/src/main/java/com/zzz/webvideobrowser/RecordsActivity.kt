@@ -34,12 +34,22 @@ class RecordsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_records)
 
+        window.statusBarColor = Color.parseColor("#F5F5F7")
+        window.navigationBarColor = Color.parseColor("#F5F5F7")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        }
+
         db = BrowserDatabase.getDatabase(this)
         
         tagHistory = findViewById(R.id.tagHistory)
         tagBookmark = findViewById(R.id.tagBookmark)
         recyclerView = findViewById(R.id.recyclerView)
         
+        findViewById<View>(R.id.btnRecordsBack).setOnClickListener {
+            finish()
+        }
+
         recyclerView.layoutManager = LinearLayoutManager(this)
         adapter = RecordsAdapter(
             onItemClick = { url ->
@@ -80,12 +90,12 @@ class RecordsActivity : AppCompatActivity() {
 
     private fun updateTabUI() {
         if (isShowingHistory) {
-            tagHistory.setTextColor(Color.parseColor("#111111"))
+            tagHistory.setTextColor(Color.parseColor("#000000"))
             tagHistory.setTypeface(null, Typeface.BOLD)
             tagBookmark.setTextColor(Color.parseColor("#999999"))
             tagBookmark.setTypeface(null, Typeface.NORMAL)
         } else {
-            tagBookmark.setTextColor(Color.parseColor("#111111"))
+            tagBookmark.setTextColor(Color.parseColor("#000000"))
             tagBookmark.setTypeface(null, Typeface.BOLD)
             tagHistory.setTextColor(Color.parseColor("#999999"))
             tagHistory.setTypeface(null, Typeface.NORMAL)

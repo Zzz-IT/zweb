@@ -3,17 +3,29 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FFFFFF">
+    android:background="#F5F5F7">
 
     <!-- Top Bar -->
     <RelativeLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:paddingHorizontal="16dp">
+        android:layout_height="?attr/actionBarSize">
+
+        <ImageButton
+            android:id="@+id/btnRecordsBack"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_close"
+            android:scaleType="centerInside" />
 
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
+            android:layout_toEndOf="@id/btnRecordsBack"
+            android:layout_marginStart="8dp"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
@@ -21,10 +33,10 @@
                 android:id="@+id/tagHistory"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="浏览记录"
-                android:textSize="20sp"
+                android:text="历史"
+                android:textSize="22sp"
                 android:textStyle="bold"
-                android:textColor="#111111"
+                android:textColor="#000000"
                 android:paddingEnd="16dp" />
 
             <TextView
@@ -32,9 +44,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="书签"
-                android:textSize="20sp"
-                android:textColor="#999999"
-                android:paddingStart="16dp" />
+                android:textSize="22sp"
+                android:textColor="#999999" />
         </LinearLayout>
 
         <TextView
@@ -47,16 +58,17 @@
             android:textSize="16sp"
             android:textColor="#FF3B30"
             android:background="?android:attr/selectableItemBackground"
-            android:paddingHorizontal="8dp" />
+            android:paddingHorizontal="16dp" />
     </RelativeLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#1A000000" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/bg_capsule"
+        android:clipToPadding="true"
+        android:overScrollMode="never" />
 </LinearLayout>
