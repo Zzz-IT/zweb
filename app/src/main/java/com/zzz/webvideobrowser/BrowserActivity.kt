@@ -77,11 +77,9 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var btnTabs: ImageButton
     private lateinit var btnTool: ImageButton
 
-    private lateinit var floatingControls: View
-    private lateinit var btnFloatPlayPause: ImageButton
-    private lateinit var btnFloatFull: ImageButton
-    private lateinit var txtFloatTime: TextView
-    private lateinit var seekFloat: SeekBar
+    private lateinit var btnResourceHub: ImageButton
+    private val resourceRegistry = ResourceRegistry()
+    private lateinit var browserSettings: BrowserSettings
 
     private lateinit var fullscreenContainer: FrameLayout
     private lateinit var fullscreenControls: View
@@ -89,9 +87,9 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var btnFullPlayPause: ImageButton
     private lateinit var btnOrientation: ImageButton
     private lateinit var txtFullTime: TextView
-    private lateinit var seekFull: SeekBar
+    private lateinit var seekFull: MiuiVideoSeekBar
+    private lateinit var txtSeekOverlay: TextView
 
-    private lateinit var floatingGestureLayer: View
     private lateinit var fullscreenGestureLayer: View
 
     private var currentDuration = 0.0
@@ -101,6 +99,7 @@ class BrowserActivity : AppCompatActivity() {
     private var isUserSeeking = false
 
     // V2 记录
+    private var modeBeforeFullscreen: BrowserViewModel.UiMode = BrowserViewModel.UiMode.WEB
     private var activeVideoId: String? = null
     private var videoBindReason: String = ""
     private var lastVideoActivatedAt = 0L
@@ -116,6 +115,7 @@ class BrowserActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        browserSettings = BrowserSettings(this)
         viewModel = ViewModelProvider(this)[BrowserViewModel::class.java]
         val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         WebView.setWebContentsDebuggingEnabled(isDebuggable)
@@ -164,11 +164,8 @@ class BrowserActivity : AppCompatActivity() {
         btnTabs = findViewById(R.id.btnTabs)
         btnTool = findViewById(R.id.btnTool)
 
-        floatingControls = findViewById(R.id.floatingControls)
-        btnFloatPlayPause = findViewById(R.id.btnFloatPlayPause)
-        btnFloatFull = findViewById(R.id.btnFloatFull)
-        txtFloatTime = findViewById(R.id.txtFloatTime)
-        seekFloat = findViewById(R.id.seekFloat)
+        btnResourceHub = findViewById(R.id.btnResourceHub)
+        btnResourceHub.setOnClickListener { showVideoCandidateSheet() }
 
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
         fullscreenControls = findViewById(R.id.fullscreenControls)
@@ -177,8 +174,8 @@ class BrowserActivity : AppCompatActivity() {
         btnOrientation = findViewById(R.id.btnOrientation)
         txtFullTime = findViewById(R.id.txtFullTime)
         seekFull = findViewById(R.id.seekFull)
+        txtSeekOverlay = findViewById(R.id.txtSeekOverlay)
 
-        floatingGestureLayer = findViewById(R.id.floatingGestureLayer)
         fullscreenGestureLayer = findViewById(R.id.fullscreenGestureLayer)
     }
 
@@ -199,6 +196,10 @@ class BrowserActivity : AppCompatActivity() {
             builtInZoomControls = false
             displayZoomControls = false
             userAgentString = userAgentString + " WebVideoBrowser/2.0"
+            
+            if (browserSettings.enableDesktopMode) {
+                userAgentString = userAgentString.replace("Mobile", "").replace("Android", "Windows NT 10.0")
+            }
         }
 
         wv.addJavascriptInterface(VideoBridge(wv), "AndroidVideo")
@@ -214,6 +215,13 @@ class BrowserActivity : AppCompatActivity() {
             }
             
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                if (browserSettings.enableAdBlock) {
+                    val url = request.url.toString().lowercase(java.util.Locale.US)
+                    if (url.contains("googleads") || url.contains("doubleclick.net") || url.contains("adsystem") || url.contains("/ad/") || url.contains("ad.doubleclick")) {
+                        return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                    }
+                }
+                
                 sniffMediaRequest(view, request.url.toString(), request.requestHeaders)
                 return super.shouldInterceptRequest(view, request)
             }
@@ -221,7 +229,11 @@ class BrowserActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 if (getActiveWebView() == view) {
-                    urlInput.setText(url)
+                    if (viewModel.uiMode.value == BrowserViewModel.UiMode.HOME) {
+                        urlInput.setText("")
+                    } else {
+                        urlInput.setText(url)
+                    }
                 }
                 val tab = tabs.find { it.webView == view }
                 if (tab != null) {
@@ -256,24 +268,77 @@ class BrowserActivity : AppCompatActivity() {
         return wv
     }
 
-    private fun sniffMediaRequest(wv: WebView, rawUrl: String, headers: Map<String, String>) {
+    private fun classifyMediaUrl(rawUrl: String): CandidateType? {
         val lower = rawUrl.lowercase(Locale.US)
-        val type = when {
-            ".m3u8" in lower || "m3u8" in lower -> "hls"
-            ".mpd" in lower -> "dash"
-            ".mp4" in lower -> "mp4"
-            ".webm" in lower -> "webm"
-            ".m4s" in lower -> "fragment"
-            ".ts" in lower -> "ts"
+        return when {
+            ".m3u8" in lower || "m3u8" in lower -> {
+                if ("/qc/" in lower || "/720/" in lower || "/1080/" in lower || "/480/" in lower) {
+                    CandidateType.HLS_MEDIA
+                } else {
+                    CandidateType.HLS_MASTER
+                }
+            }
+            ".mpd" in lower -> CandidateType.DASH
+            ".mp4" in lower -> CandidateType.MP4
+            ".webm" in lower -> CandidateType.WEBM
+            ".m4s" in lower || ".ts" in lower -> CandidateType.FRAGMENT
             else -> null
-        } ?: return
+        }
+    }
+
+    private fun titleForCandidateType(type: CandidateType, host: String?): String {
+        return when (type) {
+            CandidateType.HLS_MASTER -> "HLS 视频流"
+            CandidateType.HLS_MEDIA -> "HLS 子清晰度"
+            CandidateType.MP4 -> "MP4 视频"
+            CandidateType.WEBM -> "WebM 视频"
+            CandidateType.DASH -> "DASH 视频流"
+            CandidateType.FRAGMENT -> "媒体分片"
+            else -> "网络媒体"
+        } + if (host != null) " ($host)" else ""
+    }
+
+    private fun sniffMediaRequest(wv: WebView, rawUrl: String, headers: Map<String, String>) {
+        val type = classifyMediaUrl(rawUrl) ?: return
 
         runOnUiThread {
             val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
-            val entry = "$type: $rawUrl"
+            val entry = "${type.name}: $rawUrl"
             if (!tab.sniffedMediaList.contains(entry)) {
                 tab.sniffedMediaList.add(entry)
             }
+            
+            val uri = runCatching { android.net.Uri.parse(rawUrl) }.getOrNull()
+            val host = uri?.host
+
+            val score = when (type) {
+                CandidateType.HLS_MASTER -> 700
+                CandidateType.HLS_MEDIA -> 650
+                CandidateType.MP4 -> 620
+                CandidateType.WEBM -> 610
+                CandidateType.DASH -> 600
+                CandidateType.FRAGMENT -> 100
+                else -> 0
+            }
+
+            resourceRegistry.upsert(
+                VideoCandidate(
+                    id = "net:$rawUrl",
+                    type = type,
+                    title = titleForCandidateType(type, host),
+                    url = rawUrl,
+                    pageUrl = wv.url,
+                    frameSrc = null,
+                    videoId = null,
+                    host = host,
+                    headers = headers,
+                    score = score,
+                    confidence = if (type == CandidateType.FRAGMENT) 30 else 70,
+                    reason = "network-sniff"
+                )
+            )
+
+            updateResourceFabVisibility()
         }
     }
 
@@ -297,23 +362,22 @@ class BrowserActivity : AppCompatActivity() {
         }
         
         val tab = tabs[index]
-        urlInput.setText(tab.webView.url ?: tab.url)
+        val displayUrl = tab.webView.url ?: tab.url
+        if (displayUrl.isBlank() || displayUrl == "about:blank" || viewModel.uiMode.value == BrowserViewModel.UiMode.HOME) {
+            urlInput.setText("")
+        } else {
+            urlInput.setText(displayUrl)
+        }
         
         activeVideoId = tab.activeVideoId
         videoBindReason = tab.videoBindReason ?: ""
         
         renderThemeColor(tab.themeColor ?: Color.parseColor("#F2F2F7"))
 
-        when {
-            tab.webView.url == null || tab.webView.url == "about:blank" -> {
-                viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
-            }
-            tab.hasVideo && !tab.isVideoPaused && tab.activeVideoId != null -> {
-                viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
-            }
-            else -> {
-                viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
-            }
+        if (tab.webView.url == null || tab.webView.url == "about:blank") {
+            viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
+        } else {
+            viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
         }
     }
 
@@ -363,6 +427,20 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
+    private fun animateBottomSwipeCommit(isBack: Boolean) {
+        val shift = if (isBack) 24f else -24f
+        addressTouchArea.animate()
+            .translationX(shift)
+            .setDuration(80)
+            .withEndAction {
+                addressTouchArea.animate()
+                    .translationX(0f)
+                    .setDuration(160)
+                    .start()
+            }
+            .start()
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun setupBottomBar() {
         btnGo.setOnClickListener { openInput(urlInput.text.toString()) }
@@ -375,20 +453,51 @@ class BrowserActivity : AppCompatActivity() {
         btnTabs.setOnClickListener { showTabsMenu() }
         btnTool.setOnClickListener { showToolMenu() }
 
-        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (e1 == null) return false
-                val dx = e2.x - e1.x
-                val activeWv = getActiveWebView()
-                if (kotlin.math.abs(dx) > 100 && kotlin.math.abs(dx) > kotlin.math.abs(e2.y - e1.y)) {
-                    if (dx > 0 && activeWv?.canGoBack() == true) activeWv.goBack()
-                    else if (dx < 0 && activeWv?.canGoForward() == true) activeWv.goForward()
-                    return true
+        var bottomSwipeStartX = 0f
+        var bottomSwipeStartY = 0f
+        var bottomSwipeDragging = false
+
+        addressTouchArea.setOnTouchListener { _, event ->
+            if (urlInput.hasFocus()) return@setOnTouchListener false
+            val wv = getActiveWebView()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    bottomSwipeStartX = event.x
+                    bottomSwipeStartY = event.y
+                    bottomSwipeDragging = false
+                    false
                 }
-                return false
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.x - bottomSwipeStartX
+                    val dy = event.y - bottomSwipeStartY
+                    if (kotlin.math.abs(dx) > 36 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.8f) {
+                        bottomSwipeDragging = true
+                        true
+                    } else {
+                        false
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (!bottomSwipeDragging) {
+                        false
+                    } else {
+                        val dx = event.x - bottomSwipeStartX
+                        when {
+                            dx > 110 && wv?.canGoBack() == true -> {
+                                animateBottomSwipeCommit(isBack = true)
+                                wv.goBack()
+                            }
+                            dx < -110 && wv?.canGoForward() == true -> {
+                                animateBottomSwipeCommit(isBack = false)
+                                wv.goForward()
+                            }
+                        }
+                        true
+                    }
+                }
+                else -> false
             }
-        })
-        addressTouchArea.setOnTouchListener { _, event -> detector.onTouchEvent(event); false }
+        }
     }
 
     private fun requestVideoFullscreenWithFallback() {
@@ -410,42 +519,33 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun setupPlayerControls() {
-        btnFloatPlayPause.setOnClickListener { 
-            evalBool("NativeVideo.toggle()") { ok ->
-                if (!ok) Toast.makeText(this, "未绑定可控视频", Toast.LENGTH_SHORT).show()
-            }
-        }
         btnFullPlayPause.setOnClickListener { 
             evalBool("NativeVideo.toggle()") { ok ->
                 if (!ok) Toast.makeText(this, "未绑定可控视频", Toast.LENGTH_SHORT).show()
             }
         }
-        btnFloatFull.setOnClickListener { requestVideoFullscreenWithFallback() }
         btnExitFull.setOnClickListener { requestExitFullscreen() }
         btnOrientation.setOnClickListener { cycleOrientationMode() }
 
-        val seekListener = object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
+        val seekListener = object : MiuiVideoSeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: MiuiVideoSeekBar, progress: Int, fromUser: Boolean) {
                 if (fromUser && currentDuration > 0) {
-                    val target = currentDuration * p / s.max
+                    val target = currentDuration * progress / seekBar.max
                     val text = "${formatTime(target)} / ${formatTime(currentDuration)}"
-                    txtFloatTime.text = text
                     txtFullTime.text = text
                 }
             }
-            override fun onStartTrackingTouch(s: SeekBar) { isUserSeeking = true }
-            override fun onStopTrackingTouch(s: SeekBar) {
-                val target = currentDuration * s.progress / s.max
-                evalBool("NativeVideo.seekTo($target)") { ok ->
-                    if (!ok) Toast.makeText(this@BrowserActivity, "此视频暂不支持拖动", Toast.LENGTH_SHORT).show()
-                }
+            override fun onStartTrackingTouch(seekBar: MiuiVideoSeekBar) { 
+                isUserSeeking = true
+            }
+            override fun onStopTrackingTouch(seekBar: MiuiVideoSeekBar) {
+                val target = currentDuration * seekBar.progress / seekBar.max
+                eval("NativeVideo.seekTo($target)")
                 isUserSeeking = false
             }
         }
-        seekFloat.setOnSeekBarChangeListener(seekListener)
-        seekFull.setOnSeekBarChangeListener(seekListener)
+        seekFull.onSeekBarChangeListener = seekListener
 
-        setupVideoGestureLayer(floatingGestureLayer)
         setupVideoGestureLayer(fullscreenGestureLayer)
     }
 
@@ -475,6 +575,9 @@ class BrowserActivity : AppCompatActivity() {
         val handler = android.os.Handler(mainLooper)
         var longPressRunnable: Runnable? = null
 
+        var isHorizontalSeeking = false
+        var pendingSeekSeconds = 0
+
         layer.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -483,6 +586,7 @@ class BrowserActivity : AppCompatActivity() {
                     downTime = System.currentTimeMillis()
                     moved = false
                     longPressTriggered = false
+                    isHorizontalSeeking = false
 
                     eval("NativeVideo.getState()") 
 
@@ -507,8 +611,11 @@ class BrowserActivity : AppCompatActivity() {
 
                     if (kotlin.math.abs(dx) > 40 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
                         longPressRunnable?.let { handler.removeCallbacks(it) }
-                        val sec = (dx / 8).toInt()
-                        Toast.makeText(this, if (sec >= 0) "+${sec}s" else "${sec}s", Toast.LENGTH_SHORT).show()
+                        isHorizontalSeeking = true
+                        pendingSeekSeconds = (dx / 8).toInt()
+                        
+                        txtSeekOverlay.visibility = View.VISIBLE
+                        txtSeekOverlay.text = if (pendingSeekSeconds >= 0) "+${pendingSeekSeconds}s" else "${pendingSeekSeconds}s"
                     }
                     true
                 }
@@ -527,11 +634,10 @@ class BrowserActivity : AppCompatActivity() {
                         return@setOnTouchListener true
                     }
 
-                    if (kotlin.math.abs(dx) > 60 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
-                        val sec = (dx / 8).toInt()
-                        evalBool("NativeVideo.seekBy($sec)") { ok ->
-                            if (!ok) Toast.makeText(this, "此视频暂不支持拖动", Toast.LENGTH_SHORT).show()
-                        }
+                    if (isHorizontalSeeking) {
+                        txtSeekOverlay.visibility = View.GONE
+                        eval("NativeVideo.seekBy($pendingSeekSeconds)")
+                        isHorizontalSeeking = false
                         return@setOnTouchListener true
                     }
 
@@ -607,9 +713,20 @@ class BrowserActivity : AppCompatActivity() {
         )
     }
 
+    private fun hideKeyboardAndClearFocus() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        currentFocus?.let {
+            imm.hideSoftInputFromWindow(it.windowToken, 0)
+            it.clearFocus()
+        }
+        urlInput.clearFocus()
+        homeSearchInput.clearFocus()
+    }
+
     private fun openInput(input: String) {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return
+        hideKeyboardAndClearFocus()
         val url = if (trimmed.startsWith("http")) trimmed
         else if (trimmed.contains(".") && !trimmed.contains(" ")) "https://$trimmed"
         else "https://www.google.com/search?q=${URLEncoder.encode(trimmed, "UTF-8")}"
@@ -635,7 +752,7 @@ class BrowserActivity : AppCompatActivity() {
         val wv = getActiveWebView() ?: return
         wv.evaluateJavascript("NativeVideo.forceActivate()") { result ->
             if (result == "true") {
-                viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
+                enterPseudoFullscreen()
             } else {
                 Toast.makeText(this, "未发现可直接接管的视频，可能在 iframe 跨域沙盒中", Toast.LENGTH_SHORT).show()
             }
@@ -697,6 +814,10 @@ class BrowserActivity : AppCompatActivity() {
         }
         view.findViewById<View>(R.id.tool_video_diagnose)?.setOnClickListener {
             diagnoseVideoTakeover()
+            dialog.dismiss()
+        }
+        view.findViewById<View>(R.id.tool_settings)?.setOnClickListener {
+            startActivity(android.content.Intent(this, SettingsActivity::class.java))
             dialog.dismiss()
         }
 
@@ -767,10 +888,16 @@ class BrowserActivity : AppCompatActivity() {
     private fun applyUiMode(mode: BrowserViewModel.UiMode) {
         val isHome = mode == BrowserViewModel.UiMode.HOME
         val isWeb = mode == BrowserViewModel.UiMode.WEB
-        val isFloating = mode == BrowserViewModel.UiMode.FLOATING
+        val isPanel = mode == BrowserViewModel.UiMode.RESOURCE_PANEL
         val isCustomFull = mode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM
         val isPseudoFull = mode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO
         val isAnyFull = isCustomFull || isPseudoFull
+
+        val transition = android.transition.AutoTransition().apply {
+            duration = 300
+            interpolator = android.view.animation.DecelerateInterpolator()
+        }
+        android.transition.TransitionManager.beginDelayedTransition(rootContainer, transition)
 
         homeLayer.visibility = if (isHome) View.VISIBLE else View.GONE
 
@@ -780,10 +907,9 @@ class BrowserActivity : AppCompatActivity() {
             else -> View.VISIBLE
         }
 
-        bottomBar.visibility = if (isHome || isWeb || isFloating) View.VISIBLE else View.GONE
+        bottomBar.visibility = if (isHome || isWeb || isPanel) View.VISIBLE else View.GONE
 
-        floatingControls.visibility = if (isFloating) View.VISIBLE else View.GONE
-        floatingGestureLayer.visibility = if (isFloating) View.VISIBLE else View.GONE
+        updateResourceFabVisibility()
 
         fullscreenContainer.visibility = if (isCustomFull) View.VISIBLE else View.GONE
 
@@ -801,10 +927,6 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun bringVideoLayersToFront() {
         when (viewModel.uiMode.value) {
-            BrowserViewModel.UiMode.FLOATING -> {
-                floatingGestureLayer.bringToFront()
-                floatingControls.bringToFront()
-            }
             BrowserViewModel.UiMode.FULLSCREEN_CUSTOM -> {
                 fullscreenContainer.bringToFront()
                 fullscreenGestureLayer.bringToFront()
@@ -824,6 +946,7 @@ class BrowserActivity : AppCompatActivity() {
             callback.onCustomViewHidden()
             return
         }
+        modeBeforeFullscreen = viewModel.uiMode.value ?: BrowserViewModel.UiMode.WEB
         customView = view
         customViewCallback = callback
         fullscreenContainer.removeAllViews()
@@ -833,6 +956,7 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun enterPseudoFullscreen() {
+        modeBeforeFullscreen = viewModel.uiMode.value ?: BrowserViewModel.UiMode.WEB
         applyOrientationMode()
         viewModel.setUiMode(BrowserViewModel.UiMode.FULLSCREEN_PSEUDO)
     }
@@ -842,12 +966,140 @@ class BrowserActivity : AppCompatActivity() {
         customView = null
         customViewCallback = null
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
+        viewModel.setUiMode(modeBeforeFullscreen)
     }
 
     private fun leavePseudoFullscreen() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING)
+        viewModel.setUiMode(modeBeforeFullscreen)
+    }
+
+    private fun updateResourceFabVisibility() {
+        val mode = viewModel.uiMode.value
+        val isFull = mode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM || mode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO
+        val shouldShow = !isFull && resourceRegistry.hasCandidates()
+        val isCurrentlyVisible = btnResourceHub.visibility == View.VISIBLE
+
+        if (shouldShow != isCurrentlyVisible) {
+            val transition = android.transition.AutoTransition().apply {
+                duration = 300
+                interpolator = android.view.animation.DecelerateInterpolator()
+            }
+            android.transition.TransitionManager.beginDelayedTransition(rootContainer, transition)
+            btnResourceHub.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        }
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun showVideoCandidateSheet() {
+        val dialog = BottomSheetDialog(this)
+        val view = layoutInflater.inflate(R.layout.sheet_video_candidates, null)
+        dialog.setContentView(view)
+
+        val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+        bottomSheet?.setBackgroundResource(android.R.color.transparent)
+
+        val container = view.findViewById<android.widget.LinearLayout>(R.id.candidateListContainer)
+        val candidates = resourceRegistry.listSorted()
+
+        if (candidates.isEmpty()) {
+            val emptyTxt = TextView(this).apply {
+                text = "未发现任何可接管资源"
+                setPadding(32, 64, 32, 64)
+                gravity = android.view.Gravity.CENTER
+            }
+            container.addView(emptyTxt)
+        } else {
+            candidates.forEach { candidate ->
+                val item = layoutInflater.inflate(R.layout.item_video_candidate, container, false)
+                val title = item.findViewById<TextView>(R.id.txtCandidateTitle)
+                val subtitle = item.findViewById<TextView>(R.id.txtCandidateSubtitle)
+                val tag = item.findViewById<TextView>(R.id.txtCandidateTag)
+
+                title.text = candidate.title
+                subtitle.text = "${candidate.host ?: "unknown"} | ${candidate.reason}"
+                tag.text = candidate.type.name
+
+                item.setOnClickListener {
+                    handleCandidateClick(candidate)
+                    dialog.dismiss()
+                }
+                container.addView(item)
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun handleCandidateClick(candidate: VideoCandidate) {
+        when (candidate.type) {
+            CandidateType.DOM_VIDEO -> {
+                enterFullscreenForDomVideo(candidate)
+            }
+            CandidateType.IFRAME_PLAYER -> {
+                openIframeCandidate(candidate)
+            }
+            CandidateType.HLS_MASTER,
+            CandidateType.HLS_MEDIA,
+            CandidateType.MP4,
+            CandidateType.WEBM,
+            CandidateType.DASH -> {
+                openStreamFallback(candidate)
+            }
+            CandidateType.BLOB_HINT -> {
+                Toast.makeText(this, "blob 属于页面内部播放对象，请优先进入 iframe 或 DOM 接管", Toast.LENGTH_LONG).show()
+            }
+            CandidateType.FRAGMENT -> {
+                Toast.makeText(this, "这是媒体分片，不建议直接播放", Toast.LENGTH_SHORT).show()
+            }
+            CandidateType.CUSTOM_VIEW -> {
+                Toast.makeText(this, "请使用网页播放器全屏按钮触发原生全屏", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun enterFullscreenForDomVideo(candidate: VideoCandidate) {
+        val videoId = candidate.videoId ?: return
+        val wv = getActiveWebView() ?: return
+        val escapedId = org.json.JSONObject.quote(videoId)
+
+        wv.evaluateJavascript("NativeVideo.activateById($escapedId)") { result ->
+            if (result == "true") {
+                activeVideoId = videoId
+                enterPseudoFullscreen()
+            } else {
+                Toast.makeText(this, "该视频已失效，请重新播放或刷新资源列表", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun openIframeCandidate(candidate: VideoCandidate) {
+        val iframeSrc = candidate.frameSrc ?: return
+        val parentUrl = candidate.pageUrl ?: getActiveWebView()?.url ?: return
+
+        val headers = mutableMapOf<String, String>()
+        headers["Referer"] = parentUrl
+
+        val parentOrigin = runCatching {
+            val uri = android.net.Uri.parse(parentUrl)
+            "${uri.scheme}://${uri.host}"
+        }.getOrNull()
+
+        if (!parentOrigin.isNullOrBlank()) {
+            headers["Origin"] = parentOrigin
+        }
+
+        viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
+        urlInput.setText(iframeSrc)
+
+        resourceRegistry.clearAll()
+        updateResourceFabVisibility()
+
+        getActiveWebView()?.loadUrl(iframeSrc, headers)
+    }
+
+    private fun openStreamFallback(candidate: VideoCandidate) {
+        Toast.makeText(this, "暂不支持原生播放外部流，将来可接入 Media3", Toast.LENGTH_SHORT).show()
     }
 
     private fun requestExitFullscreen() {
@@ -883,14 +1135,11 @@ class BrowserActivity : AppCompatActivity() {
     private fun updateProgressUi() {
         val progress = if (currentDuration > 0) (currentPosition / currentDuration * 1000).toInt() else 0
         if (!isUserSeeking) {
-            seekFloat.progress = progress
             seekFull.progress = progress
         }
         val text = "${formatTime(currentPosition)} / ${formatTime(currentDuration)}"
-        txtFloatTime.text = text
         txtFullTime.text = text
         val playIcon = if (isPaused) R.drawable.ic_play else R.drawable.ic_pause
-        btnFloatPlayPause.setImageResource(playIcon)
         btnFullPlayPause.setImageResource(playIcon)
     }
 
@@ -961,17 +1210,32 @@ class BrowserActivity : AppCompatActivity() {
                 tab.isVideoPaused = false
                 tab.activeVideoId = videoId
                 tab.videoBindReason = reason
+
+                resourceRegistry.upsert(
+                    VideoCandidate(
+                        id = "dom:${wv.url}:$videoId",
+                        type = CandidateType.DOM_VIDEO,
+                        title = title.ifBlank { "页面内视频" },
+                        url = null,
+                        pageUrl = wv.url,
+                        frameSrc = null,
+                        videoId = videoId,
+                        host = android.net.Uri.parse(wv.url ?: "").host,
+                        score = 1000,
+                        confidence = 95,
+                        reason = reason
+                    )
+                )
+                updateResourceFabVisibility()
                 
                 if (getActiveWebView() != wv) return@runOnUiThread
                 
                 this@BrowserActivity.activeVideoId = videoId
                 this@BrowserActivity.videoBindReason = reason
                 this@BrowserActivity.lastVideoActivatedAt = System.currentTimeMillis()
-
-                if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM &&
-                    viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
-                    viewModel.setUiMode(BrowserViewModel.UiMode.FLOATING) 
-                }
+                
+                // V3: Do not automatically switch UI mode to floating
+                // just record the video.
             }
         }
         
@@ -1009,10 +1273,8 @@ class BrowserActivity : AppCompatActivity() {
 
                 this@BrowserActivity.activeVideoId = null
                 
-                if (viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_CUSTOM &&
-                    viewModel.uiMode.value != BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
-                    viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
-                }
+                // Keep the current mode in V3. 
+                // Don't auto-switch back to WEB.
                 Toast.makeText(this@BrowserActivity, "视频接管已失效: $reason", Toast.LENGTH_SHORT).show()
             }
         }
@@ -1027,6 +1289,28 @@ class BrowserActivity : AppCompatActivity() {
         @JavascriptInterface fun onThemeColor(color: String) {
             runOnUiThread {
                 applyThemeColor(color, wv)
+            }
+        }
+
+        @JavascriptInterface fun onIframeDetected(src: String) {
+            runOnUiThread {
+                if (src.isBlank()) return@runOnUiThread
+                resourceRegistry.upsert(
+                    VideoCandidate(
+                        id = "iframe:$src",
+                        type = CandidateType.IFRAME_PLAYER,
+                        title = "iframe 播放器",
+                        url = src,
+                        pageUrl = wv.url,
+                        frameSrc = src,
+                        videoId = null,
+                        host = runCatching { android.net.Uri.parse(src).host }.getOrNull(),
+                        score = 900,
+                        confidence = 60,
+                        reason = "iframe-scan"
+                    )
+                )
+                updateResourceFabVisibility()
             }
         }
     }

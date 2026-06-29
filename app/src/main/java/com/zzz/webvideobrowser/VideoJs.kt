@@ -356,6 +356,15 @@ object VideoJs {
   }
 
   window.NativeVideo = {
+    activateById: function (id) {
+      const videos = Array.from(document.querySelectorAll("video"));
+      for (const video of videos) {
+        if (getVideoId(video) === id) {
+          return activateVideo(video, "manual-activate");
+        }
+      }
+      return false;
+    },
     diagnose: function () {
       return diagnoseVideos();
     },
@@ -451,6 +460,21 @@ object VideoJs {
     for (const video of videos) bindVideo(video);
     const playing = pickActuallyPlayingVideo();
     if (playing && !activeVideo) activateVideo(playing, "scan-playing");
+
+    Array.from(document.querySelectorAll("iframe")).forEach(function (frame) {
+      if (!frame.__ZWEB_REPORTED__) {
+        try {
+          if (frame.contentWindow && frame.contentWindow.document) {
+            // Same origin, will be handled by its own script injection
+          }
+        } catch (e) {
+          frame.__ZWEB_REPORTED__ = true;
+          safeCall(function () {
+            AndroidVideo.onIframeDetected(frame.src || "");
+          });
+        }
+      }
+    });
   }
 
   hookMediaPlay();

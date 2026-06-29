@@ -8,6 +8,21 @@
     android:focusable="false"
     android:elevation="40dp">
 
+    <TextView
+        android:id="@+id/txtSeekOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:paddingLeft="20dp"
+        android:paddingRight="20dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
+        android:background="@drawable/bg_seek_overlay"
+        android:textColor="#FFFFFF"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
     <ImageButton
         android:id="@+id/btnExitFull"
         android:layout_width="48dp"
@@ -48,14 +63,11 @@
             android:layout_height="match_parent"
             android:layout_weight="1">
 
-            <SeekBar
+            <com.zzz.webvideobrowser.MiuiVideoSeekBar
                 android:id="@+id/seekFull"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_centerVertical="true"
-                android:max="1000"
-                android:progressTint="#FFFFFF"
-                android:thumbTint="#FFFFFF" />
+                android:layout_height="32dp"
+                android:layout_centerVertical="true" />
 
             <TextView
                 android:id="@+id/txtFullTime"

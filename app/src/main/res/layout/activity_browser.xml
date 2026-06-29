@@ -12,16 +12,6 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <!-- 悬浮手势层 (拦截 WebView 的视频区域触摸) -->
-    <View
-        android:id="@+id/floatingGestureLayer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_marginBottom="140dp"
-        android:background="@android:color/transparent"
-        android:clickable="true"
-        android:focusable="true"
-        android:visibility="gone" />
 
     <!-- 首页层 -->
     <include layout="@layout/preview_home" />
@@ -33,13 +23,21 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom" />
 
-    <!-- 悬浮播放控制 (位于底栏上方) -->
-    <include
-        layout="@layout/preview_floating_player"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="68dp" />
+
+    <!-- 资源控制悬浮按钮 -->
+    <ImageButton
+        android:id="@+id/btnResourceHub"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="92dp"
+        android:background="@drawable/bg_fab_video"
+        android:src="@drawable/ic_play"
+        android:scaleType="centerInside"
+        android:elevation="16dp"
+        android:visibility="gone"
+        android:contentDescription="可控视频" />
 
 
     <!-- 全屏容器 (最顶层) -->
