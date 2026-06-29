@@ -1637,7 +1637,7 @@ class BrowserActivity : AppCompatActivity() {
             CandidateType.MP4,
             CandidateType.WEBM,
             CandidateType.DASH -> {
-                openStreamFallback(candidate)
+                // Not controllable via DOM
             }
             CandidateType.BLOB_HINT -> {
                 Toast.makeText(this, "blob 属于页面内部播放对象，请优先进入 iframe 或 DOM 接管", Toast.LENGTH_LONG).show()
@@ -1749,26 +1749,6 @@ class BrowserActivity : AppCompatActivity() {
         updateResourceFabVisibility()
 
         getActiveWebView()?.loadUrl(iframeSrc)
-    }
-
-    private fun openStreamFallback(candidate: VideoCandidate) {
-        val streamUrl = candidate.url ?: return
-        
-        playerSourceMode = PlayerSourceMode.STREAM_NATIVE
-        
-        val intent = android.content.Intent(this, StreamPlayerActivity::class.java).apply {
-            putExtra("url", streamUrl)
-            putExtra("title", candidate.title)
-            putExtra("referer", candidate.pageUrl)
-            putExtra("origin", candidate.host?.let { "https://$it" })
-            
-            val wv = getActiveWebView()
-            if (wv != null) {
-                putExtra("userAgent", wv.settings.userAgentString)
-            }
-        }
-        
-        startActivity(intent)
     }
 
     private fun requestExitFullscreen() {
