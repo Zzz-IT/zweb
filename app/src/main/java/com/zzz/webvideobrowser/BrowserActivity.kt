@@ -99,6 +99,10 @@ class BrowserActivity : AppCompatActivity() {
     private var isUserSeeking = false
 
     // V2 记录
+    private enum class PlayerSourceMode {
+        NONE, DOM_THEATER, IFRAME_TOP_PAGE, STREAM_NATIVE
+    }
+    private var playerSourceMode = PlayerSourceMode.NONE
     private var modeBeforeFullscreen: BrowserViewModel.UiMode = BrowserViewModel.UiMode.WEB
     private var activeVideoId: String? = null
     private var videoBindReason: String = ""
@@ -427,18 +431,41 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
-    private fun animateBottomSwipeCommit(isBack: Boolean) {
-        val shift = if (isBack) 24f else -24f
-        addressTouchArea.animate()
-            .translationX(shift)
-            .setDuration(80)
+    private var barDownX = 0f
+    private var barDownY = 0f
+    private var barDragging = false
+    private var barGestureType = BarGestureType.NONE
+
+    private enum class BarGestureType {
+        NONE, HORIZONTAL, PULL_REFRESH
+    }
+
+    private fun updateBottomBarNavHint(dx: Float, canBack: Boolean, canForward: Boolean) {
+        // Option to add visual hints here
+    }
+
+    private fun updateBottomBarRefreshHint(pull: Float) {
+        // Option to add visual hints here
+    }
+
+    private fun bounceBottomBar(fromX: Float, fromY: Float) {
+        bottomBarContent.translationX = fromX
+        bottomBarContent.translationY = fromY
+
+        bottomBarContent.animate()
+            .translationX(0f)
+            .translationY(0f)
+            .setDuration(220)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.6f))
             .withEndAction {
-                addressTouchArea.animate()
-                    .translationX(0f)
-                    .setDuration(160)
-                    .start()
+                resetBottomBarGesture()
             }
             .start()
+    }
+
+    private fun resetBottomBarGesture() {
+        barDragging = false
+        barGestureType = BarGestureType.NONE
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -453,48 +480,110 @@ class BrowserActivity : AppCompatActivity() {
         btnTabs.setOnClickListener { showTabsMenu() }
         btnTool.setOnClickListener { showToolMenu() }
 
-        var bottomSwipeStartX = 0f
-        var bottomSwipeStartY = 0f
-        var bottomSwipeDragging = false
-
-        addressTouchArea.setOnTouchListener { _, event ->
+        bottomBarContent.setOnTouchListener { _, event ->
             if (urlInput.hasFocus()) return@setOnTouchListener false
+
             val wv = getActiveWebView()
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    bottomSwipeStartX = event.x
-                    bottomSwipeStartY = event.y
-                    bottomSwipeDragging = false
+                    barDownX = event.x
+                    barDownY = event.y
+                    barDragging = false
+                    barGestureType = BarGestureType.NONE
+                    bottomBarContent.animate().cancel()
                     false
                 }
+
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = event.x - bottomSwipeStartX
-                    val dy = event.y - bottomSwipeStartY
-                    if (kotlin.math.abs(dx) > 36 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.8f) {
-                        bottomSwipeDragging = true
-                        true
-                    } else {
-                        false
-                    }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (!bottomSwipeDragging) {
-                        false
-                    } else {
-                        val dx = event.x - bottomSwipeStartX
+                    val dx = event.x - barDownX
+                    val dy = event.y - barDownY
+                    val absDx = kotlin.math.abs(dx)
+                    val absDy = kotlin.math.abs(dy)
+
+                    if (!barDragging) {
                         when {
-                            dx > 110 && wv?.canGoBack() == true -> {
-                                animateBottomSwipeCommit(isBack = true)
-                                wv.goBack()
+                            absDx > 28 && absDx > absDy * 1.5f -> {
+                                barDragging = true
+                                barGestureType = BarGestureType.HORIZONTAL
                             }
-                            dx < -110 && wv?.canGoForward() == true -> {
-                                animateBottomSwipeCommit(isBack = false)
-                                wv.goForward()
+
+                            -dy > 28 && absDy > absDx * 1.4f -> {
+                                barDragging = true
+                                barGestureType = BarGestureType.PULL_REFRESH
                             }
                         }
-                        true
                     }
+
+                    if (!barDragging) return@setOnTouchListener false
+
+                    when (barGestureType) {
+                        BarGestureType.HORIZONTAL -> {
+                            val limitedDx = dx.coerceIn(-96f, 96f)
+                            bottomBarContent.translationX = limitedDx
+
+                            updateBottomBarNavHint(
+                                dx = limitedDx,
+                                canBack = wv?.canGoBack() == true,
+                                canForward = wv?.canGoForward() == true
+                            )
+                        }
+
+                        BarGestureType.PULL_REFRESH -> {
+                            val pull = (-dy).coerceIn(0f, 72f)
+                            bottomBarContent.translationY = -pull
+                            updateBottomBarRefreshHint(pull)
+                        }
+
+                        else -> Unit
+                    }
+
+                    true
                 }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (!barDragging) {
+                        resetBottomBarGesture()
+                        return@setOnTouchListener false
+                    }
+
+                    val dx = event.x - barDownX
+                    val dy = event.y - barDownY
+
+                    when (barGestureType) {
+                        BarGestureType.HORIZONTAL -> {
+                            when {
+                                dx > 96 && wv?.canGoBack() == true -> {
+                                    wv.goBack()
+                                    bounceBottomBar(fromX = 72f, fromY = 0f)
+                                }
+
+                                dx < -96 && wv?.canGoForward() == true -> {
+                                    wv.goForward()
+                                    bounceBottomBar(fromX = -72f, fromY = 0f)
+                                }
+
+                                else -> {
+                                    bounceBottomBar(fromX = bottomBarContent.translationX, fromY = 0f)
+                                }
+                            }
+                        }
+
+                        BarGestureType.PULL_REFRESH -> {
+                            if (-dy > 72) {
+                                wv?.reload()
+                                bounceBottomBar(fromX = 0f, fromY = -56f)
+                            } else {
+                                bounceBottomBar(fromX = 0f, fromY = bottomBarContent.translationY)
+                            }
+                        }
+
+                        else -> resetBottomBarGesture()
+                    }
+
+                    true
+                }
+
                 else -> false
             }
         }
@@ -918,11 +1007,17 @@ class BrowserActivity : AppCompatActivity() {
 
         if (isAnyFull) {
             hideSystemBars()
+            bringVideoLayersToFront()
         } else {
             showSystemBars()
+            bringBrowserLayersToFront()
         }
+    }
 
-        bringVideoLayersToFront()
+    private fun bringBrowserLayersToFront() {
+        bottomBar.bringToFront()
+        btnResourceHub.bringToFront()
+        progressBar.bringToFront()
     }
 
     private fun bringVideoLayersToFront() {
@@ -956,9 +1051,21 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun enterPseudoFullscreen() {
-        modeBeforeFullscreen = viewModel.uiMode.value ?: BrowserViewModel.UiMode.WEB
+        playerSourceMode = PlayerSourceMode.DOM_THEATER
+        modeBeforeFullscreen = resolveReturnModeAfterPlayer()
         applyOrientationMode()
         viewModel.setUiMode(BrowserViewModel.UiMode.FULLSCREEN_PSEUDO)
+    }
+
+    private fun resolveReturnModeAfterPlayer(): BrowserViewModel.UiMode {
+        val wv = getActiveWebView()
+        val url = wv?.url
+
+        return if (url.isNullOrBlank() || url == "about:blank") {
+            BrowserViewModel.UiMode.HOME
+        } else {
+            BrowserViewModel.UiMode.WEB
+        }
     }
 
     private fun leaveCustomFullscreen() {
@@ -966,12 +1073,20 @@ class BrowserActivity : AppCompatActivity() {
         customView = null
         customViewCallback = null
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        viewModel.setUiMode(modeBeforeFullscreen)
+        viewModel.setUiMode(resolveReturnModeAfterPlayer())
+        bringBrowserLayersToFront()
+        updateResourceFabVisibility()
     }
 
     private fun leavePseudoFullscreen() {
+        getActiveWebView()?.evaluateJavascript("NativeVideo.exitTheater && NativeVideo.exitTheater()", null)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        viewModel.setUiMode(modeBeforeFullscreen)
+        activeVideoId = null
+        videoBindReason = ""
+        playerSourceMode = PlayerSourceMode.NONE
+        viewModel.setUiMode(resolveReturnModeAfterPlayer())
+        bringBrowserLayersToFront()
+        updateResourceFabVisibility()
     }
 
     private fun updateResourceFabVisibility() {
@@ -1060,16 +1175,83 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun enterFullscreenForDomVideo(candidate: VideoCandidate) {
         val videoId = candidate.videoId ?: return
-        val wv = getActiveWebView() ?: return
+        tryEnterDomVideoById(videoId) { ok ->
+            if (!ok) {
+                refreshDomVideoCandidates {
+                    val replacement = resourceRegistry.listSorted()
+                        .firstOrNull { it.type == CandidateType.DOM_VIDEO }
+
+                    if (replacement?.videoId != null) {
+                        tryEnterDomVideoById(replacement.videoId!!) { retryOk ->
+                            if (!retryOk) {
+                                Toast.makeText(this, "视频对象已失效，请重新点击网页播放", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(this, "未找到可接管的视频，请重新点击网页播放", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun tryEnterDomVideoById(videoId: String, callback: (Boolean) -> Unit) {
+        val wv = getActiveWebView() ?: return callback(false)
         val escapedId = org.json.JSONObject.quote(videoId)
 
-        wv.evaluateJavascript("NativeVideo.activateById($escapedId)") { result ->
+        wv.evaluateJavascript("NativeVideo.enterTheaterById && NativeVideo.enterTheaterById($escapedId)") { result ->
             if (result == "true") {
                 activeVideoId = videoId
                 enterPseudoFullscreen()
+                callback(true)
             } else {
-                Toast.makeText(this, "该视频已失效，请重新播放或刷新资源列表", Toast.LENGTH_SHORT).show()
+                callback(false)
             }
+        }
+    }
+
+    private fun refreshDomVideoCandidates(done: () -> Unit) {
+        val wv = getActiveWebView() ?: return done()
+
+        wv.evaluateJavascript("JSON.stringify(NativeVideo.listVideos && NativeVideo.listVideos())") { raw ->
+            val text = raw?.removePrefix("\"")
+                ?.removeSuffix("\"")
+                ?.replace("\\\"", "\"")
+                ?.replace("\\\\", "\\") ?: ""
+
+            resourceRegistry.removeTypeForPage(CandidateType.DOM_VIDEO, wv.url)
+
+            try {
+                val arr = org.json.JSONArray(text)
+                for (i in 0 until arr.length()) {
+                    val item = arr.getJSONObject(i)
+                    val id = item.optString("id")
+                    val title = item.optString("title", "页面内视频")
+                    val src = item.optString("currentSrc", "")
+
+                    if (id.isNotBlank()) {
+                        resourceRegistry.upsert(
+                            VideoCandidate(
+                                id = "dom:${wv.url}:$id",
+                                type = CandidateType.DOM_VIDEO,
+                                title = title.ifBlank { "页面内视频" },
+                                url = src.ifBlank { null },
+                                pageUrl = wv.url,
+                                frameSrc = null,
+                                videoId = id,
+                                host = android.net.Uri.parse(wv.url ?: "").host,
+                                score = item.optInt("score", 1000),
+                                confidence = 90,
+                                reason = "manual-rescan"
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+            }
+
+            updateResourceFabVisibility()
+            done()
         }
     }
 
@@ -1077,25 +1259,18 @@ class BrowserActivity : AppCompatActivity() {
         val iframeSrc = candidate.frameSrc ?: return
         val parentUrl = candidate.pageUrl ?: getActiveWebView()?.url ?: return
 
-        val headers = mutableMapOf<String, String>()
-        headers["Referer"] = parentUrl
-
-        val parentOrigin = runCatching {
-            val uri = android.net.Uri.parse(parentUrl)
-            "${uri.scheme}://${uri.host}"
-        }.getOrNull()
-
-        if (!parentOrigin.isNullOrBlank()) {
-            headers["Origin"] = parentOrigin
-        }
-
+        playerSourceMode = PlayerSourceMode.IFRAME_TOP_PAGE
+        
         viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
+        bottomBar.visibility = View.GONE
+        btnResourceHub.visibility = View.GONE
+
         urlInput.setText(iframeSrc)
 
         resourceRegistry.clearAll()
         updateResourceFabVisibility()
 
-        getActiveWebView()?.loadUrl(iframeSrc, headers)
+        getActiveWebView()?.loadUrl(iframeSrc)
     }
 
     private fun openStreamFallback(candidate: VideoCandidate) {

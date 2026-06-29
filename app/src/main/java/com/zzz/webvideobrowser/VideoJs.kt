@@ -355,7 +355,112 @@ object VideoJs {
     };
   }
 
+  let theaterVideo = null;
+  let theaterSnapshot = null;
+
+  function enterTheaterById(id) {
+    const videos = Array.from(document.querySelectorAll("video"));
+    let video = null;
+
+    for (const v of videos) {
+      if (getVideoId(v) === id) {
+        video = v;
+        break;
+      }
+    }
+
+    if (!video) return false;
+
+    theaterVideo = video;
+    activeVideo = video;
+
+    theaterSnapshot = {
+      bodyOverflow: document.body.style.overflow,
+      htmlOverflow: document.documentElement.style.overflow,
+      videoStyle: video.getAttribute("style") || "",
+      parentStyle: video.parentElement ? (video.parentElement.getAttribute("style") || "") : ""
+    };
+
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
+    const parent = video.parentElement || video;
+
+    parent.style.position = "fixed";
+    parent.style.left = "0";
+    parent.style.top = "0";
+    parent.style.width = "100vw";
+    parent.style.height = "100vh";
+    parent.style.zIndex = "2147483646";
+    parent.style.background = "#000";
+    parent.style.display = "flex";
+    parent.style.alignItems = "center";
+    parent.style.justifyContent = "center";
+
+    video.style.position = "relative";
+    video.style.width = "100vw";
+    video.style.height = "100vh";
+    video.style.maxWidth = "100vw";
+    video.style.maxHeight = "100vh";
+    video.style.objectFit = "contain";
+    video.style.background = "#000";
+    video.style.opacity = "1";
+    video.style.visibility = "visible";
+    video.style.display = "block";
+
+    activateVideo(video, "manual-theater");
+    return true;
+  }
+
+  function exitTheater() {
+    if (!theaterVideo || !theaterSnapshot) return false;
+
+    const video = theaterVideo;
+    const parent = video.parentElement;
+
+    document.body.style.overflow = theaterSnapshot.bodyOverflow || "";
+    document.documentElement.style.overflow = theaterSnapshot.htmlOverflow || "";
+
+    video.setAttribute("style", theaterSnapshot.videoStyle || "");
+
+    if (parent) {
+      parent.setAttribute("style", theaterSnapshot.parentStyle || "");
+    }
+
+    theaterVideo = null;
+    theaterSnapshot = null;
+    return true;
+  }
+
   window.NativeVideo = {
+    enterTheaterById: function (id) {
+      return enterTheaterById(id);
+    },
+    exitTheater: function () {
+      return exitTheater();
+    },
+    listVideos: function () {
+      scanVideos();
+      const videos = Array.from(document.querySelectorAll("video"));
+      return videos.map(function (video, index) {
+        return {
+          index: index,
+          id: getVideoId(video),
+          title: document.title || "",
+          paused: Boolean(video.paused),
+          currentTime: Number(video.currentTime || 0),
+          duration: Number(video.duration || 0),
+          readyState: Number(video.readyState || 0),
+          currentSrc: video.currentSrc || "",
+          src: video.src || "",
+          width: Number(video.videoWidth || 0),
+          height: Number(video.videoHeight || 0),
+          score: videoScore(video)
+        };
+      }).filter(function (item) {
+        return item.score > 0 || item.readyState > 0 || item.currentSrc || item.src;
+      });
+    },
     activateById: function (id) {
       const videos = Array.from(document.querySelectorAll("video"));
       for (const video of videos) {

@@ -44,6 +44,12 @@ class ResourceRegistry {
         candidates.entries.removeIf { it.value.pageUrl == pageUrl }
     }
 
+    fun removeTypeForPage(type: CandidateType, pageUrl: String?) {
+        candidates.entries.removeIf {
+            it.value.type == type && it.value.pageUrl == pageUrl
+        }
+    }
+
     fun clearAll() {
         candidates.clear()
     }
