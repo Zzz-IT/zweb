@@ -5,9 +5,6 @@ enum class CandidateFilter(val label: String) {
     RECOMMENDED("推荐"),
     CONTROLLABLE("可接管"),
     BLOB("Blob"),
-    HLS("HLS"),
-    FILE("直链"),
     IFRAME("iframe"),
-    FRAGMENT("分片"),
-    DIAGNOSTIC("诊断")
+    FALLBACK("兜底")
 }

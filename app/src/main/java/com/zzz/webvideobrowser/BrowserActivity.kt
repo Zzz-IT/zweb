@@ -335,6 +335,8 @@ class BrowserActivity : AppCompatActivity() {
         } + if (host != null) " ($host)" else ""
     }
 
+    private const val MAX_SNIFFED_PER_TAB = 80
+
     private fun sniffMediaRequest(wv: WebView, rawUrl: String, headers: Map<String, String>) {
         val type = classifyMediaUrl(rawUrl) ?: return
 
@@ -342,40 +344,11 @@ class BrowserActivity : AppCompatActivity() {
             val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
             val entry = "${type.name}: $rawUrl"
             if (!tab.sniffedMediaList.contains(entry)) {
+                if (tab.sniffedMediaList.size >= MAX_SNIFFED_PER_TAB) {
+                    tab.sniffedMediaList.removeAt(0)
+                }
                 tab.sniffedMediaList.add(entry)
             }
-            
-            val uri = runCatching { android.net.Uri.parse(rawUrl) }.getOrNull()
-            val host = uri?.host
-
-            val score = when (type) {
-                CandidateType.HLS_MASTER -> 700
-                CandidateType.HLS_MEDIA -> 650
-                CandidateType.MP4 -> 620
-                CandidateType.WEBM -> 610
-                CandidateType.DASH -> 600
-                CandidateType.FRAGMENT -> 100
-                else -> 0
-            }
-
-            resourceRegistry.upsert(
-                VideoCandidate(
-                    id = "net:$rawUrl",
-                    type = type,
-                    title = titleForCandidateType(type, host),
-                    url = rawUrl,
-                    pageUrl = wv.url,
-                    frameSrc = null,
-                    videoId = null,
-                    host = host,
-                    headers = headers,
-                    score = score,
-                    confidence = if (type == CandidateType.FRAGMENT) 30 else 70,
-                    reason = "network-sniff"
-                )
-            )
-
-            updateResourceFabVisibility()
         }
     }
 
@@ -1512,26 +1485,10 @@ class BrowserActivity : AppCompatActivity() {
                 CandidateFilter.IFRAME,
                 CandidateFilter.CONTROLLABLE
             )
-            CandidateType.HLS_MASTER,
-            CandidateType.HLS_MEDIA -> setOf(
-                CandidateFilter.HLS
-            )
-            CandidateType.MP4,
-            CandidateType.WEBM,
-            CandidateType.DASH -> setOf(
-                CandidateFilter.FILE
-            )
-            CandidateType.BLOB_HINT -> setOf(
-                CandidateFilter.BLOB,
-                CandidateFilter.DIAGNOSTIC
-            )
-            CandidateType.FRAGMENT -> setOf(
-                CandidateFilter.FRAGMENT,
-                CandidateFilter.DIAGNOSTIC
-            )
             CandidateType.CUSTOM_VIEW -> setOf(
-                CandidateFilter.DIAGNOSTIC
+                CandidateFilter.FALLBACK
             )
+            else -> emptySet()
         }
     }
 
@@ -1539,8 +1496,7 @@ class BrowserActivity : AppCompatActivity() {
         return when (candidate.type) {
             CandidateType.DOM_BLOB_VIDEO -> listOf(
                 ResourceChip("可接管", CandidateFilter.CONTROLLABLE, ChipLevel.PRIMARY),
-                ResourceChip("Blob", CandidateFilter.BLOB, ChipLevel.INFO),
-                ResourceChip("不可外放", CandidateFilter.BLOB, ChipLevel.WARNING)
+                ResourceChip("Blob", CandidateFilter.BLOB, ChipLevel.INFO)
             )
             CandidateType.DOM_VIDEO -> listOf(
                 ResourceChip("可接管", CandidateFilter.CONTROLLABLE, ChipLevel.PRIMARY),
@@ -1550,51 +1506,20 @@ class BrowserActivity : AppCompatActivity() {
                 ResourceChip("iframe", CandidateFilter.IFRAME, ChipLevel.INFO),
                 ResourceChip("进入播放器页", CandidateFilter.IFRAME, ChipLevel.PRIMARY)
             )
-            CandidateType.HLS_MASTER -> listOf(
-                ResourceChip("HLS", CandidateFilter.HLS, ChipLevel.INFO),
-                ResourceChip("主列表", CandidateFilter.HLS, ChipLevel.PRIMARY),
-                ResourceChip("可尝试", CandidateFilter.HLS, ChipLevel.WARNING)
-            )
-            CandidateType.HLS_MEDIA -> listOf(
-                ResourceChip("HLS", CandidateFilter.HLS, ChipLevel.INFO),
-                ResourceChip("子清晰度", CandidateFilter.HLS, ChipLevel.WARNING)
-            )
-            CandidateType.MP4,
-            CandidateType.WEBM -> listOf(
-                ResourceChip("直链", CandidateFilter.FILE, ChipLevel.INFO),
-                ResourceChip("可尝试", CandidateFilter.FILE, ChipLevel.PRIMARY)
-            )
-            CandidateType.DASH -> listOf(
-                ResourceChip("DASH", CandidateFilter.FILE, ChipLevel.INFO),
-                ResourceChip("可尝试", CandidateFilter.FILE, ChipLevel.WARNING)
-            )
-            CandidateType.FRAGMENT -> listOf(
-                ResourceChip("分片", CandidateFilter.FRAGMENT, ChipLevel.WARNING),
-                ResourceChip("非入口", CandidateFilter.DIAGNOSTIC, ChipLevel.DANGER)
-            )
-            CandidateType.BLOB_HINT -> listOf(
-                ResourceChip("Blob线索", CandidateFilter.BLOB, ChipLevel.WARNING),
-                ResourceChip("诊断", CandidateFilter.DIAGNOSTIC, ChipLevel.INFO)
-            )
             CandidateType.CUSTOM_VIEW -> listOf(
-                ResourceChip("网页全屏", CandidateFilter.DIAGNOSTIC, ChipLevel.INFO)
+                ResourceChip("网页全屏", CandidateFilter.FALLBACK, ChipLevel.INFO)
             )
+            else -> emptyList()
         }
     }
 
     private fun detailForCandidate(candidate: VideoCandidate): String {
         return when (candidate.type) {
-            CandidateType.DOM_BLOB_VIDEO -> "网页内部 blob 视频，可用本应用控件接管；不能导入原生 HLS 播放器。"
+            CandidateType.DOM_BLOB_VIDEO -> "网页内部 blob 视频，可用本应用控件接管。"
             CandidateType.DOM_VIDEO -> "页面内 video，可直接进入自定义全屏控件。"
             CandidateType.IFRAME_PLAYER -> "跨域播放器页，点击后进入 iframe 顶层页面再尝试接管。"
-            CandidateType.HLS_MASTER -> "HLS 主播放列表，可尝试用原生播放器打开；若失败请改用 DOM 接管。"
-            CandidateType.HLS_MEDIA -> "HLS 子清晰度列表，通常不是最优先入口。"
-            CandidateType.MP4,
-            CandidateType.WEBM -> "媒体直链，可尝试用原生播放器打开。"
-            CandidateType.DASH -> "DASH 流，可尝试用原生播放器打开。"
-            CandidateType.BLOB_HINT -> "blob 线索，仅表示网页内部播放对象存在。"
-            CandidateType.FRAGMENT -> "媒体分片，不是完整播放入口。"
             CandidateType.CUSTOM_VIEW -> "网页原生全屏入口，可作为兜底。"
+            else -> ""
         }
     }
 
@@ -1602,7 +1527,6 @@ class BrowserActivity : AppCompatActivity() {
         return when {
             candidates.any { it.type == CandidateType.DOM_BLOB_VIDEO || it.type == CandidateType.DOM_VIDEO } -> CandidateFilter.RECOMMENDED
             candidates.any { it.type == CandidateType.IFRAME_PLAYER } -> CandidateFilter.IFRAME
-            candidates.any { it.type == CandidateType.HLS_MASTER || it.type == CandidateType.HLS_MEDIA } -> CandidateFilter.HLS
             else -> CandidateFilter.ALL
         }
     }
@@ -1612,14 +1536,8 @@ class BrowserActivity : AppCompatActivity() {
             CandidateType.DOM_BLOB_VIDEO -> 10_000
             CandidateType.DOM_VIDEO -> 9_500
             CandidateType.IFRAME_PLAYER -> 8_000
-            CandidateType.HLS_MASTER -> 7_000
-            CandidateType.HLS_MEDIA -> 6_500
-            CandidateType.MP4 -> 6_200
-            CandidateType.WEBM -> 6_100
-            CandidateType.DASH -> 6_000
-            CandidateType.BLOB_HINT -> 3_000
-            CandidateType.FRAGMENT -> 1_000
             CandidateType.CUSTOM_VIEW -> 2_500
+            else -> 0
         }
         return base + candidate.score + candidate.confidence
     }
