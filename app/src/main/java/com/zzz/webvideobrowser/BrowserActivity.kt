@@ -67,6 +67,7 @@ class BrowserActivity : AppCompatActivity() {
 
     private lateinit var homeLayer: View
     private lateinit var bottomBar: View
+    private lateinit var bottomBarDragUnderlay: View
     private lateinit var bottomBarContent: View
     private lateinit var addressContainerFrame: View
 
@@ -163,6 +164,7 @@ class BrowserActivity : AppCompatActivity() {
         webViewContainer = findViewById(R.id.webViewContainer)
         homeLayer = findViewById(R.id.homeLayer)
         bottomBar = findViewById(R.id.bottomBar)
+        bottomBarDragUnderlay = findViewById(R.id.bottomBarDragUnderlay)
         bottomBarContent = findViewById(R.id.bottomBarContent)
         addressContainerFrame = findViewById(R.id.addressContainerFrame)
         addressTouchArea = findViewById(R.id.addressTouchArea)
@@ -466,6 +468,22 @@ class BrowserActivity : AppCompatActivity() {
         return sign * (limit * abs / (abs + limit))
     }
 
+    private const val BAR_GESTURE_START_SLOP = 30f
+    private const val BAR_NAV_TRIGGER = 160f
+    private const val BAR_REFRESH_TRIGGER = 120f
+    private const val BAR_HORIZONTAL_ELASTIC_LIMIT = 220f
+    private const val BAR_VERTICAL_ELASTIC_LIMIT = 170f
+
+    private fun resetBottomBarUnderlay() {
+        bottomBarDragUnderlay.scaleY = 1f
+    }
+
+    private fun updateBottomBarUnderlayPull(pull: Float) {
+        val baseHeight = bottomBar.height.takeIf { it > 0 } ?: dp(72)
+        bottomBarDragUnderlay.pivotY = bottomBarDragUnderlay.height.toFloat()
+        bottomBarDragUnderlay.scaleY = (baseHeight + pull.coerceAtLeast(0f)) / baseHeight.toFloat()
+    }
+
     private fun focusUrlInput() {
         urlInput.requestFocus()
         urlInput.setSelection(urlInput.text?.length ?: 0)
@@ -485,6 +503,8 @@ class BrowserActivity : AppCompatActivity() {
             .withEndAction {
                 barDragging = false
                 barGestureType = BarGestureType.NONE
+                bottomGestureHint.visibility = View.GONE
+                resetBottomBarUnderlay()
             }
             .start()
     }
@@ -559,12 +579,12 @@ class BrowserActivity : AppCompatActivity() {
                         val absDy = kotlin.math.abs(dy)
                         if (!barDragging) {
                             when {
-                                absDx > 18f && absDx > absDy * 1.25f -> {
+                                absDx > BAR_GESTURE_START_SLOP && absDx > absDy * 1.45f -> {
                                     barDragging = true
                                     barGestureType = BarGestureType.HORIZONTAL_NAV
                                     hideKeyboardAndClearFocus()
                                 }
-                                -dy > 18f && absDy > absDx * 1.25f -> {
+                                -dy > BAR_GESTURE_START_SLOP && absDy > absDx * 1.45f -> {
                                     barDragging = true
                                     barGestureType = BarGestureType.PULL_REFRESH
                                     hideKeyboardAndClearFocus()
@@ -589,14 +609,16 @@ class BrowserActivity : AppCompatActivity() {
 
                     when (barGestureType) {
                         BarGestureType.HORIZONTAL_NAV -> {
-                            val drag = rubberBand(dx, 140f)
+                            val drag = rubberBand(dx, BAR_HORIZONTAL_ELASTIC_LIMIT)
                             bottomBar.translationX = drag
                             bottomBar.translationY = 0f
+                            resetBottomBarUnderlay()
                         }
                         BarGestureType.PULL_REFRESH -> {
-                            val pull = rubberBand(-dy, 96f).coerceAtLeast(0f)
+                            val pull = rubberBand(-dy, BAR_VERTICAL_ELASTIC_LIMIT).coerceAtLeast(0f)
                             bottomBar.translationY = -pull
                             bottomBar.translationX = 0f
+                            updateBottomBarUnderlayPull(pull)
                         }
                         else -> Unit
                     }
@@ -618,11 +640,11 @@ class BrowserActivity : AppCompatActivity() {
                         when (barGestureType) {
                             BarGestureType.HORIZONTAL_NAV -> {
                                 when {
-                                    dx > 160f && wv?.canGoBack() == true -> {
+                                    dx > BAR_NAV_TRIGGER && wv?.canGoBack() == true -> {
                                         wv.goBack()
                                         bounceBottomBar(72f, 0f)
                                     }
-                                    dx < -160f && wv?.canGoForward() == true -> {
+                                    dx < -BAR_NAV_TRIGGER && wv?.canGoForward() == true -> {
                                         wv.goForward()
                                         bounceBottomBar(-72f, 0f)
                                     }
@@ -632,7 +654,7 @@ class BrowserActivity : AppCompatActivity() {
                                 }
                             }
                             BarGestureType.PULL_REFRESH -> {
-                                if (-dy > 120f) {
+                                if (-dy > BAR_REFRESH_TRIGGER) {
                                     wv?.reload()
                                     bounceBottomBar(0f, -56f)
                                 } else {
@@ -832,6 +854,7 @@ class BrowserActivity : AppCompatActivity() {
         window.statusBarColor = safeBg
         window.navigationBarColor = safeBg
         bottomBar.setBackgroundColor(safeBg)
+        bottomBarDragUnderlay.setBackgroundColor(safeBg)
         bottomBarContent.setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
         val isLight = ColorUtils.calculateLuminance(safeBg) > 0.55
@@ -1212,6 +1235,7 @@ class BrowserActivity : AppCompatActivity() {
         }
 
         bottomBar.visibility = if (isHome || isWeb || isPanel) View.VISIBLE else View.GONE
+        bottomBarDragUnderlay.visibility = if (isHome || isWeb || isPanel) View.VISIBLE else View.GONE
 
         updateResourceFabVisibility()
 
@@ -1221,6 +1245,9 @@ class BrowserActivity : AppCompatActivity() {
         fullscreenControls.visibility = if (isAnyFull) View.VISIBLE else View.GONE
 
         if (isAnyFull) {
+            resetBottomBarUnderlay()
+            bottomBar.translationX = 0f
+            bottomBar.translationY = 0f
             hideSystemBars()
             bringVideoLayersToFront()
         } else {

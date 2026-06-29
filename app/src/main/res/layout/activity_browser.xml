@@ -16,6 +16,16 @@
     <!-- 首页层 -->
     <include layout="@layout/preview_home" />
 
+    <!-- 底栏拖动时的同色背景延展层，必须放在 bottomBar 后面、WebView 前面 -->
+    <View
+        android:id="@+id/bottomBarDragUnderlay"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:layout_gravity="bottom"
+        android:background="#F2F2F7"
+        android:clickable="false"
+        android:focusable="false" />
+
     <!-- 底部导航栏 -->
     <include
         layout="@layout/preview_bottom_bar"
