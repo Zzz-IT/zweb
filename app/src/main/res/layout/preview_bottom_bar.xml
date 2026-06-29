@@ -1,28 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/bottomBar"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:layout_height="72dp"
     android:clipChildren="false"
     android:clipToPadding="false">
-
-    <!-- 进度条 (物理吸附在搜索栏最顶端) -->
-    <ProgressBar
-        android:id="@+id/progressBar"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="2dp"
-        android:max="100"
-        android:progressTint="#007AFF"
-        android:visibility="gone" />
 
     <com.zzz.webvideobrowser.GestureInterceptLayout
         android:id="@+id/bottomBarGestureWrapper"
         android:layout_width="match_parent"
-        android:layout_height="116dp"
-        android:layout_marginTop="-44dp"
-        android:paddingTop="44dp"
+        android:layout_height="match_parent"
         android:clipChildren="false"
         android:clipToPadding="false">
 
@@ -116,4 +103,15 @@
             android:visibility="gone" />
 
     </com.zzz.webvideobrowser.GestureInterceptLayout>
-</LinearLayout>
+
+    <!-- 覆盖在底栏顶部，不参与底栏高度测量 -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_gravity="top"
+        android:max="100"
+        android:progressTint="#007AFF"
+        android:visibility="gone" />
+</FrameLayout>

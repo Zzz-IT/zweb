@@ -74,6 +74,7 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var homeLayer: View
     private lateinit var bottomBar: View
     private lateinit var bottomBarDragUnderlay: View
+    private lateinit var bottomBarGestureHotArea: GestureInterceptLayout
     private lateinit var bottomBarContent: View
     private lateinit var addressContainerFrame: View
 
@@ -129,6 +130,8 @@ class BrowserActivity : AppCompatActivity() {
         PORTRAIT, LANDSCAPE, SENSOR
     }
     private var orientationMode = OrientationMode.SENSOR
+    
+    private var bottomBarBounceAnimator: android.animation.ValueAnimator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -216,6 +219,7 @@ class BrowserActivity : AppCompatActivity() {
         homeLayer = findViewById(R.id.homeLayer)
         bottomBar = findViewById(R.id.bottomBar)
         bottomBarDragUnderlay = findViewById(R.id.bottomBarDragUnderlay)
+        bottomBarGestureHotArea = findViewById(R.id.bottomBarGestureHotArea)
         bottomBarContent = findViewById(R.id.bottomBarContent)
         addressContainerFrame = findViewById(R.id.addressContainerFrame)
         addressTouchArea = findViewById(R.id.addressTouchArea)
@@ -245,8 +249,181 @@ class BrowserActivity : AppCompatActivity() {
 
         fullscreenGestureLayer = findViewById(R.id.fullscreenGestureLayer)
         
-        // 立即设置 pivotY，并在每次绘制前确保其正确，消除缩放延迟
-        bottomBarDragUnderlay.pivotY = dp(72).toFloat()
+        bottomBarDragUnderlay.post {
+            bottomBarDragUnderlay.pivotY = bottomBarDragUnderlay.height.toFloat()
+        }
+    }
+    
+    private fun cancelBottomBarBounce() {
+        bottomBarBounceAnimator?.cancel()
+        bottomBarBounceAnimator = null
+    }
+
+    private fun handleBottomBarGestureDown(event: MotionEvent) {
+        cancelBottomBarBounce()
+
+        barDownX = event.rawX
+        barDownY = event.rawY
+        barDownTime = System.currentTimeMillis()
+        barDragging = false
+        barGestureType = BarGestureType.NONE
+
+        bottomBar.animate().cancel()
+        bottomBar.translationX = 0f
+        bottomBar.translationY = 0f
+        bottomBarDragUnderlay.scaleY = 1f
+    }
+
+    private fun handleBottomBarIntercept(
+        host: GestureInterceptLayout,
+        event: MotionEvent
+    ): Boolean {
+        if (urlInput.hasFocus()) return false
+
+        return when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                handleBottomBarGestureDown(event)
+                false
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - barDownX
+                val dy = event.rawY - barDownY
+                val absDx = kotlin.math.abs(dx)
+                val absDy = kotlin.math.abs(dy)
+
+                if (!barDragging) {
+                    when {
+                        absDx > BAR_GESTURE_START_SLOP && absDx > absDy * 1.45f -> {
+                            barDragging = true
+                            barGestureType = BarGestureType.HORIZONTAL_NAV
+                            host.parent?.requestDisallowInterceptTouchEvent(true)
+                            hideKeyboardAndClearFocus()
+                        }
+
+                        -dy > BAR_GESTURE_START_SLOP && absDy > absDx * 1.45f -> {
+                            barDragging = true
+                            barGestureType = BarGestureType.PULL_REFRESH
+                            host.parent?.requestDisallowInterceptTouchEvent(true)
+                            hideKeyboardAndClearFocus()
+                        }
+                    }
+                }
+
+                barDragging
+            }
+
+            else -> false
+        }
+    }
+
+    private fun handleBottomBarTouch(
+        event: MotionEvent,
+        focusOnTap: Boolean
+    ): Boolean {
+        val wv = getActiveWebView()
+
+        return when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - barDownX
+                val dy = event.rawY - barDownY
+
+                when (barGestureType) {
+                    BarGestureType.HORIZONTAL_NAV -> {
+                        val drag = rubberBand(dx, BAR_HORIZONTAL_ELASTIC_LIMIT)
+                        bottomBar.translationX = drag
+                        bottomBar.translationY = 0f
+                        resetBottomBarUnderlay()
+                    }
+
+                    BarGestureType.PULL_REFRESH -> {
+                        val pull = rubberBand(-dy, BAR_VERTICAL_ELASTIC_LIMIT).coerceAtLeast(0f)
+                        bottomBar.translationY = -pull
+                        bottomBar.translationX = 0f
+                        updateBottomBarUnderlayPull(pull)
+                    }
+
+                    else -> Unit
+                }
+
+                true
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val dx = event.rawX - barDownX
+                val dy = event.rawY - barDownY
+                val dt = System.currentTimeMillis() - barDownTime
+
+                if (!barDragging) {
+                    bounceBottomBar(0f, 0f)
+
+                    if (
+                        focusOnTap &&
+                        dt < 220 &&
+                        kotlin.math.abs(dx) < 12f &&
+                        kotlin.math.abs(dy) < 12f
+                    ) {
+                        focusUrlInput()
+                    }
+
+                    true
+                } else {
+                    when (barGestureType) {
+                        BarGestureType.HORIZONTAL_NAV -> {
+                            when {
+                                dx > BAR_NAV_TRIGGER && wv?.canGoBack() == true -> {
+                                    wv.goBack()
+                                    bounceBottomBar(bottomBar.translationX, 0f)
+                                }
+
+                                dx < -BAR_NAV_TRIGGER && wv?.canGoForward() == true -> {
+                                    wv.goForward()
+                                    bounceBottomBar(bottomBar.translationX, 0f)
+                                }
+
+                                else -> {
+                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                }
+                            }
+                        }
+
+                        BarGestureType.PULL_REFRESH -> {
+                            if (-dy > BAR_REFRESH_TRIGGER) {
+                                wv?.reload()
+                                bounceBottomBar(0f, bottomBar.translationY)
+                            } else {
+                                bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                            }
+                        }
+
+                        else -> {
+                            bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                        }
+                    }
+
+                    true
+                }
+            }
+
+            else -> true
+        }
+    }
+
+    private fun installBottomGesture(
+        target: GestureInterceptLayout,
+        focusOnTap: Boolean
+    ) {
+        target.interceptCallback = { event ->
+            handleBottomBarIntercept(target, event)
+        }
+
+        target.touchCallback = { event ->
+            handleBottomBarTouch(event, focusOnTap)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
@@ -579,6 +756,8 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun bounceBottomBar(fromX: Float, fromY: Float) {
+        cancelBottomBarBounce()
+
         if (fromX == 0f && fromY == 0f) {
             bottomBar.translationX = 0f
             bottomBar.translationY = 0f
@@ -589,31 +768,50 @@ class BrowserActivity : AppCompatActivity() {
             return
         }
 
-        val underlayStartScale = bottomBarDragUnderlay.scaleY
-        
+        val baseHeight = dp(72).toFloat()
+        val startPull = (-fromY).coerceAtLeast(0f)
+        val startScaleY = (baseHeight + startPull) / baseHeight
+
         val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 120 // 更快的响应
-            interpolator = android.view.animation.LinearInterpolator() // 线性恢复，减少视觉上的粘滞感
+            duration = 120
+            interpolator = android.view.animation.DecelerateInterpolator(1.6f)
+
             addUpdateListener { anim ->
                 val fraction = anim.animatedValue as Float
-                bottomBar.translationX = fromX * (1 - fraction)
-                bottomBar.translationY = fromY * (1 - fraction)
-                
-                if (underlayStartScale > 1f) {
-                    bottomBarDragUnderlay.scaleY = 1f + (underlayStartScale - 1f) * (1 - fraction)
+                val remain = 1f - fraction
+
+                bottomBar.translationX = fromX * remain
+                bottomBar.translationY = fromY * remain
+
+                if (startScaleY > 1f) {
+                    bottomBarDragUnderlay.scaleY = 1f + (startScaleY - 1f) * remain
+                } else {
+                    bottomBarDragUnderlay.scaleY = 1f
                 }
             }
+
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (bottomBarBounceAnimator !== animation) return
+
                     bottomBar.translationX = 0f
                     bottomBar.translationY = 0f
                     bottomBarDragUnderlay.scaleY = 1f
                     barDragging = false
                     barGestureType = BarGestureType.NONE
                     bottomGestureHint.visibility = View.GONE
+                    bottomBarBounceAnimator = null
+                }
+
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    if (bottomBarBounceAnimator === animation) {
+                        bottomBarBounceAnimator = null
+                    }
                 }
             })
         }
+
+        bottomBarBounceAnimator = animator
         animator.start()
     }
 
@@ -659,124 +857,8 @@ class BrowserActivity : AppCompatActivity() {
         btnTool.setOnClickListener { showToolMenu() }
 
         val bottomBarGestureWrapper = findViewById<GestureInterceptLayout>(R.id.bottomBarGestureWrapper)
-        
-        bottomBarGestureWrapper.interceptCallback = { event ->
-            if (urlInput.hasFocus()) false
-            else {
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        barDownX = event.rawX
-                        barDownY = event.rawY
-                        barDownTime = System.currentTimeMillis()
-                        barDragging = false
-                        barGestureType = BarGestureType.NONE
-
-                        bottomBar.animate().cancel()
-                        bottomBar.translationX = 0f
-                        bottomBar.translationY = 0f
-                        false // Let children get DOWN
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = event.rawX - barDownX
-                        val dy = event.rawY - barDownY
-                        val absDx = kotlin.math.abs(dx)
-                        val absDy = kotlin.math.abs(dy)
-                        if (!barDragging) {
-                            when {
-                                absDx > BAR_GESTURE_START_SLOP && absDx > absDy * 1.45f -> {
-                                    barDragging = true
-                                    barGestureType = BarGestureType.HORIZONTAL_NAV
-                                    bottomBarGestureWrapper.parent?.requestDisallowInterceptTouchEvent(true)
-                                    hideKeyboardAndClearFocus()
-                                }
-                                -dy > BAR_GESTURE_START_SLOP && absDy > absDx * 1.45f -> {
-                                    barDragging = true
-                                    barGestureType = BarGestureType.PULL_REFRESH
-                                    bottomBarGestureWrapper.parent?.requestDisallowInterceptTouchEvent(true)
-                                    hideKeyboardAndClearFocus()
-                                }
-                            }
-                        }
-                        barDragging
-                    }
-                    else -> false
-                }
-            }
-        }
-
-        bottomBarGestureWrapper.touchCallback = { event ->
-            val wv = getActiveWebView()
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> true // Consume DOWN if no child handled it
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - barDownX
-                    val dy = event.rawY - barDownY
-
-                    when (barGestureType) {
-                        BarGestureType.HORIZONTAL_NAV -> {
-                            val drag = rubberBand(dx, BAR_HORIZONTAL_ELASTIC_LIMIT)
-                            bottomBar.translationX = drag
-                            bottomBar.translationY = 0f
-                            resetBottomBarUnderlay()
-                        }
-                        BarGestureType.PULL_REFRESH -> {
-                            val pull = rubberBand(-dy, BAR_VERTICAL_ELASTIC_LIMIT).coerceAtLeast(0f)
-                            bottomBar.translationY = -pull
-                            bottomBar.translationX = 0f
-                            updateBottomBarUnderlayPull(pull)
-                        }
-                        else -> Unit
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    val dx = event.rawX - barDownX
-                    val dy = event.rawY - barDownY
-                    val dt = System.currentTimeMillis() - barDownTime
-
-                    if (!barDragging) {
-                        bounceBottomBar(0f, 0f)
-
-                        if (dt < 220 && kotlin.math.abs(dx) < 12f && kotlin.math.abs(dy) < 12f) {
-                            focusUrlInput()
-                        }
-                        true
-                    } else {
-                        when (barGestureType) {
-                            BarGestureType.HORIZONTAL_NAV -> {
-                                when {
-                                    dx > BAR_NAV_TRIGGER && wv?.canGoBack() == true -> {
-                                        wv.goBack()
-                                        bounceBottomBar(72f, 0f)
-                                    }
-                                    dx < -BAR_NAV_TRIGGER && wv?.canGoForward() == true -> {
-                                        wv.goForward()
-                                        bounceBottomBar(-72f, 0f)
-                                    }
-                                    else -> {
-                                        bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
-                                    }
-                                }
-                            }
-                            BarGestureType.PULL_REFRESH -> {
-                                if (-dy > BAR_REFRESH_TRIGGER) {
-                                    wv?.reload()
-                                    bounceBottomBar(0f, -56f)
-                                } else {
-                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
-                                }
-                            }
-                            else -> {
-                                bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
-                            }
-                        }
-                        true
-                    }
-                }
-                else -> true
-            }
-        }
+        installBottomGesture(bottomBarGestureWrapper, focusOnTap = true)
+        installBottomGesture(bottomBarGestureHotArea, focusOnTap = false)
     }
 
     private fun requestVideoFullscreenWithFallback() {
