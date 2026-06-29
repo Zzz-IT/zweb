@@ -17,6 +17,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.GestureDetector
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -30,6 +32,13 @@ import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.net.URLEncoder
 import java.util.Locale
+
+import android.app.Activity
+import android.content.Intent
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BrowserActivity : AppCompatActivity() {
 
@@ -327,7 +336,7 @@ class BrowserActivity : AppCompatActivity() {
         } + if (host != null) " ($host)" else ""
     }
 
-    private const val MAX_SNIFFED_PER_TAB = 80
+    private val MAX_SNIFFED_PER_TAB = 80
 
     private fun sniffMediaRequest(wv: WebView, rawUrl: String, headers: Map<String, String>) {
         val type = classifyMediaUrl(rawUrl) ?: return
@@ -344,7 +353,7 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
-    private const val MAX_TABS = 8
+    private val MAX_TABS = 8
 
     private fun createNewTab(url: String) {
         if (tabs.size >= MAX_TABS) {
@@ -483,7 +492,7 @@ class BrowserActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupBottomBarGesture() {
         urlInput.setOnFocusChangeListener { _, hasFocus ->
-            bottomBarGestureLayer.visibility = if (hasFocus) View.GONE else View.VISIBLE
+            findViewById<View>(R.id.bottomBarGestureWrapper)?.visibility = if (hasFocus) View.GONE else View.VISIBLE
         }
 
         btnGo.setOnClickListener { openInput(urlInput.text.toString()) }
@@ -1138,12 +1147,12 @@ class BrowserActivity : AppCompatActivity() {
                 txtTitle.text = if (position == activeTabIndex) "> ${tab.title}" else tab.title
 
                 holder.itemView.setOnClickListener {
-                    switchTab(holder.bindingAdapterPosition)
+                    switchTab(holder.adapterPosition)
                     dialog.dismiss()
                 }
 
                 btnClose.setOnClickListener {
-                    val pos = holder.bindingAdapterPosition
+                    val pos = holder.adapterPosition
                     if (pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
                         closeTab(pos)
                         notifyItemRemoved(pos)

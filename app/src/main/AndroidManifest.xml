@@ -28,12 +28,12 @@
         <activity
             android:name=".SettingsActivity"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.WebVideoBrowser" />
+            android:theme="@style/AppTheme" />
 
         <activity
             android:name=".RecordsActivity"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.WebVideoBrowser" />
+            android:theme="@style/AppTheme" />
 
         <activity
             android:name=".AdBlockSettingsActivity"
