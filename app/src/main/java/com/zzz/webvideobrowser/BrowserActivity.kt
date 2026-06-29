@@ -1095,10 +1095,20 @@ class BrowserActivity : AppCompatActivity() {
         openUrl(url)
     }
 
+    private fun sanitizeBridgeString(value: String, maxLen: Int = 500): String {
+        return value.take(maxLen).replace(Regex("[\\u0000-\\u001F]"), "")
+    }
+
     private fun openUrl(url: String) {
         viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
         urlInput.setText(url)
-        getActiveWebView()?.loadUrl(url)
+        
+        val headers = mutableMapOf<String, String>()
+        if (browserSettings.enableDnt) {
+            headers["DNT"] = "1"
+        }
+        
+        getActiveWebView()?.loadUrl(url, headers)
         
         val tab = tabs.getOrNull(activeTabIndex)
         if (tab != null) {
@@ -1349,15 +1359,11 @@ class BrowserActivity : AppCompatActivity() {
         updateIncognitoUi()
         
         toolIncognito?.setOnClickListener {
-            browserSettings.isIncognitoMode = !browserSettings.isIncognitoMode
             if (browserSettings.isIncognitoMode) {
-                getActiveWebView()?.clearCache(true)
-                android.webkit.CookieManager.getInstance().removeAllCookies(null)
-                Toast.makeText(this, "已开启无痕模式", Toast.LENGTH_SHORT).show()
+                exitIncognitoMode()
             } else {
-                Toast.makeText(this, "已退出无痕模式", Toast.LENGTH_SHORT).show()
+                enterIncognitoMode()
             }
-            updateIncognitoUi()
             dialog.dismiss()
         }
 
@@ -1939,7 +1945,11 @@ class BrowserActivity : AppCompatActivity() {
             CandidateType.MP4,
             CandidateType.WEBM,
             CandidateType.DASH -> {
-                // Not controllable via DOM
+                Toast.makeText(
+                    this,
+                    "该资源为媒体直链，暂仅支持诊断嗅探，无法直接接管播放",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             CandidateType.BLOB_HINT -> {
                 Toast.makeText(this, "blob 属于页面内部播放对象，请优先进入 iframe 或 DOM 接管", Toast.LENGTH_LONG).show()
@@ -2170,6 +2180,8 @@ class BrowserActivity : AppCompatActivity() {
         
         @JavascriptInterface
         fun onVideoDetected(title: String, videoId: String, paused: Boolean, curr: Double, dur: Double) {
+            val safeId = sanitizeBridgeString(videoId)
+            
             runOnUiThread {
                 val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
                 tab.hasVideo = true
@@ -2177,7 +2189,7 @@ class BrowserActivity : AppCompatActivity() {
 
                 if (getActiveWebView() != wv) return@runOnUiThread
 
-                if (this@BrowserActivity.activeVideoId == videoId) {
+                if (this@BrowserActivity.activeVideoId == safeId) {
                     currentPosition = curr
                     currentDuration = dur
                     isPaused = paused
@@ -2188,34 +2200,38 @@ class BrowserActivity : AppCompatActivity() {
 
         @JavascriptInterface 
         fun onVideoActivated(title: String, videoId: String, reason: String) {
+            val safeTitle = sanitizeBridgeString(title)
+            val safeId = sanitizeBridgeString(videoId)
+            val safeReason = sanitizeBridgeString(reason)
+
             runOnUiThread { 
                 val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
                 tab.hasVideo = true
                 tab.isVideoPaused = false
-                tab.activeVideoId = videoId
-                tab.videoBindReason = reason
+                tab.activeVideoId = safeId
+                tab.videoBindReason = safeReason
 
                 tab.resourceRegistry.upsert(
                     VideoCandidate(
-                        id = "dom:${wv.url}:$videoId",
+                        id = "dom:${wv.url}:$safeId",
                         type = CandidateType.DOM_VIDEO,
-                        title = title.ifBlank { "页面内视频" },
+                        title = safeTitle.ifBlank { "页面内视频" },
                         url = null,
                         pageUrl = wv.url,
                         frameSrc = null,
-                        videoId = videoId,
+                        videoId = safeId,
                         host = android.net.Uri.parse(wv.url ?: "").host,
                         score = 1000,
                         confidence = 95,
-                        reason = reason
+                        reason = safeReason
                     )
                 )
                 updateResourceFabVisibility()
                 
                 if (getActiveWebView() != wv) return@runOnUiThread
                 
-                this@BrowserActivity.activeVideoId = videoId
-                this@BrowserActivity.videoBindReason = reason
+                this@BrowserActivity.activeVideoId = safeId
+                this@BrowserActivity.videoBindReason = safeReason
                 this@BrowserActivity.lastVideoActivatedAt = System.currentTimeMillis()
                 
                 // V3: Do not automatically switch UI mode to floating
@@ -2225,15 +2241,17 @@ class BrowserActivity : AppCompatActivity() {
         
         @JavascriptInterface 
         fun onProgress(videoId: String, curr: Double, dur: Double, paused: Boolean, rate: Double) {
+            val safeId = sanitizeBridgeString(videoId)
+
             runOnUiThread {
                 if (getActiveWebView() != wv) return@runOnUiThread
                 
                 // V2: 防止其他广告视频的 timeupdate 污染主进度
-                if (this@BrowserActivity.activeVideoId != null && this@BrowserActivity.activeVideoId != videoId) {
+                if (this@BrowserActivity.activeVideoId != null && this@BrowserActivity.activeVideoId != safeId) {
                     return@runOnUiThread
                 }
 
-                this@BrowserActivity.activeVideoId = videoId
+                this@BrowserActivity.activeVideoId = safeId
                 currentPosition = curr
                 currentDuration = dur
                 isPaused = paused
@@ -2252,44 +2270,50 @@ class BrowserActivity : AppCompatActivity() {
         
         @JavascriptInterface 
         fun onVideoLost(videoId: String, reason: String) {
+            val safeId = sanitizeBridgeString(videoId)
+            val safeReason = sanitizeBridgeString(reason)
+
             runOnUiThread {
-                if (this@BrowserActivity.activeVideoId != videoId) return@runOnUiThread
+                if (this@BrowserActivity.activeVideoId != safeId) return@runOnUiThread
 
                 this@BrowserActivity.activeVideoId = null
                 
                 // Keep the current mode in V3. 
                 // Don't auto-switch back to WEB.
-                Toast.makeText(this@BrowserActivity, "视频接管已失效: $reason", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@BrowserActivity, "视频接管已失效: $safeReason", Toast.LENGTH_SHORT).show()
             }
         }
         
         @JavascriptInterface fun onHint(text: String) {
+            val safeText = sanitizeBridgeString(text)
             runOnUiThread { 
                 if (getActiveWebView() != wv) return@runOnUiThread
-                Toast.makeText(this@BrowserActivity, text, Toast.LENGTH_SHORT).show() 
+                Toast.makeText(this@BrowserActivity, safeText, Toast.LENGTH_SHORT).show() 
             }
         }
         
         @JavascriptInterface fun onThemeColor(color: String) {
+            val safeColor = sanitizeBridgeString(color)
             runOnUiThread {
-                applyThemeColor(color, wv)
+                applyThemeColor(safeColor, wv)
             }
         }
 
         @JavascriptInterface fun onIframeDetected(src: String) {
+            val safeSrc = sanitizeBridgeString(src, 1000)
             runOnUiThread {
-                if (src.isBlank()) return@runOnUiThread
+                if (safeSrc.isBlank()) return@runOnUiThread
                 val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
                 tab.resourceRegistry.upsert(
                     VideoCandidate(
-                        id = "iframe:$src",
+                        id = "iframe:$safeSrc",
                         type = CandidateType.IFRAME_PLAYER,
                         title = "iframe 播放器",
-                        url = src,
+                        url = safeSrc,
                         pageUrl = wv.url,
-                        frameSrc = src,
+                        frameSrc = safeSrc,
                         videoId = null,
-                        host = runCatching { android.net.Uri.parse(src).host }.getOrNull(),
+                        host = runCatching { android.net.Uri.parse(safeSrc).host }.getOrNull(),
                         score = 900,
                         confidence = 60,
                         reason = "iframe-scan"

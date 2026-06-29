@@ -11,7 +11,11 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 class AdBlockSettingsActivity : AppCompatActivity() {
 
@@ -147,6 +151,7 @@ class AdBlockSettingsActivity : AppCompatActivity() {
         fun updateInterval(newInterval: Int) {
             prefs.edit().putInt("adblock_update_interval", newInterval).apply()
             updateAutoUpdateStatusText()
+            scheduleAdBlockAutoUpdate(newInterval)
             dialog.dismiss()
         }
 
@@ -158,5 +163,21 @@ class AdBlockSettingsActivity : AppCompatActivity() {
         dialog.setContentView(view)
         dialog.window?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.setBackgroundResource(android.R.color.transparent)
         dialog.show()
+    }
+
+    private fun scheduleAdBlockAutoUpdate(intervalDays: Int) {
+        WorkManager.getInstance(this).cancelUniqueWork("adblock_auto_update")
+
+        if (intervalDays <= 0) return
+
+        val request = PeriodicWorkRequestBuilder<AdBlockUpdateWorker>(
+            intervalDays.toLong(), TimeUnit.DAYS
+        ).build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "adblock_auto_update",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
     }
 }

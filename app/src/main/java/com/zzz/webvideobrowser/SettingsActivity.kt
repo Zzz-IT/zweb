@@ -38,7 +38,10 @@ class SettingsActivity : AppCompatActivity() {
 
         val swDesktop = findViewById<MiuiSwitch>(R.id.swDesktop)
         swDesktop.checked = settings.enableDesktopMode
-        swDesktop.setOnCheckedChangeListener { isChecked -> settings.enableDesktopMode = isChecked }
+        swDesktop.setOnCheckedChangeListener { isChecked -> 
+            settings.enableDesktopMode = isChecked 
+            Toast.makeText(this, "设置将在刷新或新开页面时生效", Toast.LENGTH_SHORT).show()
+        }
 
         val swDnt = findViewById<MiuiSwitch>(R.id.swDnt)
         swDnt.checked = settings.enableDnt
