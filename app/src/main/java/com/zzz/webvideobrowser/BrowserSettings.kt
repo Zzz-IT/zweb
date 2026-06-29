@@ -17,4 +17,8 @@ class BrowserSettings(context: Context) {
     var enableDnt: Boolean
         get() = prefs.getBoolean("enable_dnt", true)
         set(value) = prefs.edit().putBoolean("enable_dnt", value).apply()
+
+    var isIncognitoMode: Boolean
+        get() = prefs.getBoolean("incognito_mode", false)
+        set(value) = prefs.edit().putBoolean("incognito_mode", value).apply()
 }

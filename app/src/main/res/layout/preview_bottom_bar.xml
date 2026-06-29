@@ -3,7 +3,9 @@
     android:id="@+id/bottomBar"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:paddingBottom="150dp"
+    android:layout_marginBottom="-150dp">
 
     <!-- 进度条 (物理吸附在搜索栏最顶端) -->
     <ProgressBar
@@ -15,7 +17,8 @@
         android:progressTint="#007AFF"
         android:visibility="gone" />
 
-    <FrameLayout
+    <com.zzz.webvideobrowser.GestureInterceptLayout
+        android:id="@+id/bottomBarGestureWrapper"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
@@ -57,13 +60,7 @@
                         android:textSize="15sp" />
                 </LinearLayout>
 
-                <View
-                    android:id="@+id/bottomBarGestureLayer"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="@android:color/transparent"
-                    android:clickable="true"
-                    android:focusable="false" />
+
 
             </FrameLayout>
 
@@ -114,5 +111,5 @@
             android:background="@drawable/bg_seek_overlay"
             android:visibility="gone" />
 
-    </FrameLayout>
+    </com.zzz.webvideobrowser.GestureInterceptLayout>
 </LinearLayout>

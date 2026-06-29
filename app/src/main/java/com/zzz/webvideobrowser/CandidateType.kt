@@ -2,6 +2,7 @@ package com.zzz.webvideobrowser
 
 enum class CandidateType {
     DOM_VIDEO,       // 页面内可控 video
+    DOM_BLOB_VIDEO,  // 页面内 blob video
     IFRAME_PLAYER,   // iframe 播放器页
     HLS_MASTER,      // 主 m3u8 / master playlist
     HLS_MEDIA,       // 子清晰度 m3u8 / media playlist

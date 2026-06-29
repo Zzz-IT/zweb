@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bottom_sheet"
+    android:padding="24dp">
+
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_miui_drag_handle"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="清除浏览器数据"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#000000"
+        android:layout_marginBottom="24dp"
+        android:layout_gravity="center_horizontal" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_search_bar"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/btnClearCache"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="清除缓存"
+            android:gravity="center"
+            android:textSize="16sp"
+            android:textColor="#333333"
+            android:background="?android:attr/selectableItemBackground" />
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1A000000" android:layout_marginHorizontal="16dp"/>
+
+        <TextView
+            android:id="@+id/btnClearCookie"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="清除Cookie"
+            android:gravity="center"
+            android:textSize="16sp"
+            android:textColor="#333333"
+            android:background="?android:attr/selectableItemBackground" />
+            
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1A000000" android:layout_marginHorizontal="16dp"/>
+
+        <TextView
+            android:id="@+id/btnClearHistory"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="清除所有浏览记录"
+            android:gravity="center"
+            android:textSize="16sp"
+            android:textColor="#FF3B30"
+            android:background="?android:attr/selectableItemBackground" />
+    </LinearLayout>
+    
+    <TextView
+        android:id="@+id/btnCancel"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="取消"
+        android:textColor="#333333"
+        android:gravity="center"
+        android:background="@drawable/bg_btn_secondary"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        android:layout_marginTop="16dp" />
+</LinearLayout>

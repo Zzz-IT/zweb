@@ -5,6 +5,7 @@ class ResourceRegistry {
 
     private fun candidatePriority(type: CandidateType): Int {
         return when (type) {
+            CandidateType.DOM_BLOB_VIDEO -> 1010
             CandidateType.DOM_VIDEO -> 1000
             CandidateType.IFRAME_PLAYER -> 900
             CandidateType.HLS_MASTER -> 700

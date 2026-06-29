@@ -9,7 +9,7 @@
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:label="WebVideoBrowser">
+        android:label="Zweb">
 
         <activity
             android:name=".BrowserActivity"
@@ -27,6 +27,16 @@
 
         <activity
             android:name=".SettingsActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.WebVideoBrowser" />
+
+        <activity
+            android:name=".RecordsActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.WebVideoBrowser" />
+
+        <activity
+            android:name=".AdBlockSettingsActivity"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 

@@ -3,4 +3,17 @@
     <color name="colorPrimary">#2196F3</color>
     <color name="colorPrimaryDark">#1976D2</color>
     <color name="colorAccent">#FF4081</color>
+
+    <!-- Chip Colors -->
+    <color name="chip_primary_bg">#E8F2FF</color>
+    <color name="chip_primary_text">#007AFF</color>
+
+    <color name="chip_info_bg">#F2F2F7</color>
+    <color name="chip_info_text">#5F6368</color>
+
+    <color name="chip_warning_bg">#FFF4E5</color>
+    <color name="chip_warning_text">#B26A00</color>
+
+    <color name="chip_danger_bg">#FFECEC</color>
+    <color name="chip_danger_text">#D32F2F</color>
 </resources>

@@ -1,36 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/sheetRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@drawable/bg_miui_bottom_sheet"
-    android:paddingTop="8dp">
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="20dp"
+    android:background="@drawable/bg_miui_bottom_sheet">
 
     <View
-        android:layout_width="32dp"
+        android:layout_width="36dp"
         android:layout_height="4dp"
         android:layout_gravity="center_horizontal"
-        android:background="@drawable/bg_miui_drag_handle" />
+        android:background="@drawable/bg_miui_drag_handle"
+        android:layout_marginBottom="16dp" />
 
     <TextView
+        android:id="@+id/txtCandidateSheetTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="发现的资源"
-        android:textSize="18sp"
+        android:text="已检测到的资源"
+        android:textSize="20sp"
         android:textStyle="bold"
-        android:textColor="#333333"
-        android:gravity="center"
-        android:paddingTop="16dp"
-        android:paddingBottom="16dp" />
+        android:textColor="#111111" />
+
+    <TextView
+        android:id="@+id/txtCandidateSheetSubtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="共 0 项"
+        android:textSize="13sp"
+        android:textColor="#8E8E93" />
+
+    <HorizontalScrollView
+        android:id="@+id/filterChipScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:scrollbars="none"
+        android:overScrollMode="never">
+
+        <LinearLayout
+            android:id="@+id/filterChipContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+
+    </HorizontalScrollView>
 
     <ScrollView
+        android:id="@+id/candidateScrollView"
         android:layout_width="match_parent"
-        android:layout_height="300dp">
+        android:layout_height="520dp"
+        android:layout_marginTop="12dp"
+        android:overScrollMode="ifContentScrolls">
+
         <LinearLayout
             android:id="@+id/candidateListContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingBottom="24dp" />
+            android:orientation="vertical" />
+
     </ScrollView>
+
 </LinearLayout>

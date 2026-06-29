@@ -67,7 +67,7 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var bottomBar: View
     private lateinit var bottomBarContent: View
     private lateinit var addressContainerFrame: View
-    private lateinit var bottomBarGestureLayer: View
+
     private lateinit var addressTouchArea: View
     private lateinit var bottomGestureHint: TextView
     private lateinit var progressBar: ProgressBar
@@ -164,7 +164,6 @@ class BrowserActivity : AppCompatActivity() {
         bottomBar = findViewById(R.id.bottomBar)
         bottomBarContent = findViewById(R.id.bottomBarContent)
         addressContainerFrame = findViewById(R.id.addressContainerFrame)
-        bottomBarGestureLayer = findViewById(R.id.bottomBarGestureLayer)
         addressTouchArea = findViewById(R.id.addressTouchArea)
         bottomGestureHint = findViewById(R.id.bottomGestureHint)
         progressBar = findViewById(R.id.progressBar)
@@ -257,7 +256,26 @@ class BrowserActivity : AppCompatActivity() {
                 val tab = tabs.find { it.webView == view }
                 if (tab != null) {
                     tab.url = url
-                    tab.title = view.title ?: url
+                    if (url == "about:blank") {
+                        tab.title = "主页"
+                    } else {
+                        tab.title = view.title ?: url
+                        
+                        // Record History
+                        if (!url.startsWith("data:") && !browserSettings.isIncognitoMode) {
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                com.zzz.webvideobrowser.db.BrowserDatabase.getDatabase(this@BrowserActivity)
+                                    .browserDao()
+                                    .insertHistory(
+                                        com.zzz.webvideobrowser.db.HistoryRecord(
+                                            title = tab.title,
+                                            url = url,
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                    )
+                            }
+                        }
+                    }
                     tab.sniffedMediaList.clear()
                 }
                 view.evaluateJavascript(VideoJs.SCRIPT, null)
@@ -363,7 +381,7 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun createNewTab(url: String) {
         val wv = createWebView()
-        val tab = TabInfo(wv, "新窗口", url)
+        val tab = TabInfo(wv, "主页", url)
         tabs.add(tab)
         webViewContainer.addView(wv, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, 
@@ -469,26 +487,6 @@ class BrowserActivity : AppCompatActivity() {
         imm.showSoftInput(urlInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
     }
 
-    private fun updateBottomBarSwipeHint(dx: Float, canBack: Boolean, canForward: Boolean) {
-        bottomGestureHint.visibility = View.VISIBLE
-        bottomGestureHint.text = when {
-            dx > 0 && canBack -> "松手后退"
-            dx > 0 && !canBack -> "没有上一页"
-            dx < 0 && canForward -> "松手前进"
-            dx < 0 && !canForward -> "没有下一页"
-            else -> ""
-        }
-    }
-
-    private fun updateBottomBarRefreshHint(pull: Float) {
-        bottomGestureHint.visibility = View.VISIBLE
-        bottomGestureHint.text = if (pull > 56f) "松手刷新" else "上滑刷新"
-    }
-
-    private fun hideBottomBarSwipeHint() {
-        bottomGestureHint.visibility = View.GONE
-    }
-
     private fun bounceBottomBar(fromX: Float, fromY: Float) {
         bottomBar.translationX = fromX
         bottomBar.translationY = fromY
@@ -501,20 +499,39 @@ class BrowserActivity : AppCompatActivity() {
             .withEndAction {
                 barDragging = false
                 barGestureType = BarGestureType.NONE
-                hideBottomBarSwipeHint()
             }
             .start()
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupBottomBarGesture() {
+        urlInput.setOnFocusChangeListener { _, hasFocus ->
+            bottomBarGestureLayer.visibility = if (hasFocus) View.GONE else View.VISIBLE
+        }
+
         btnGo.setOnClickListener { openInput(urlInput.text.toString()) }
         urlInput.setOnEditorActionListener { _, _, _ ->
             openInput(urlInput.text.toString())
             true
         }
 
-        btnHome.setOnClickListener { viewModel.setUiMode(BrowserViewModel.UiMode.HOME) }
+        btnHome.setOnClickListener {
+            val wv = getActiveWebView()
+            if (wv != null) {
+                wv.loadUrl("about:blank")
+                val tab = tabs.getOrNull(activeTabIndex)
+                if (tab != null) {
+                    tab.url = "about:blank"
+                    tab.sniffedMediaList.clear()
+                    tab.activeVideoId = null
+                    tab.videoBindReason = null
+                }
+                resourceRegistry.clearAll()
+                urlInput.setText("")
+                updateResourceFabVisibility()
+            }
+            viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
+        }
         btnTabs.setOnClickListener { showTabsMenu() }
         btnTabs.setOnLongClickListener {
             androidx.appcompat.app.AlertDialog.Builder(this)
@@ -535,71 +552,74 @@ class BrowserActivity : AppCompatActivity() {
         }
         btnTool.setOnClickListener { showToolMenu() }
 
-        bottomBarGestureLayer.setOnTouchListener { _, event ->
+        val bottomBarGestureWrapper = findViewById<GestureInterceptLayout>(R.id.bottomBarGestureWrapper)
+        
+        bottomBarGestureWrapper.interceptCallback = { event ->
+            if (urlInput.hasFocus()) false
+            else {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        barDownX = event.rawX
+                        barDownY = event.rawY
+                        barDownTime = System.currentTimeMillis()
+                        barDragging = false
+                        barGestureType = BarGestureType.NONE
+
+                        bottomBar.animate().cancel()
+                        bottomBar.translationX = 0f
+                        bottomBar.translationY = 0f
+                        false // Let children get DOWN
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - barDownX
+                        val dy = event.rawY - barDownY
+                        val absDx = kotlin.math.abs(dx)
+                        val absDy = kotlin.math.abs(dy)
+                        if (!barDragging) {
+                            when {
+                                absDx > 18f && absDx > absDy * 1.25f -> {
+                                    barDragging = true
+                                    barGestureType = BarGestureType.HORIZONTAL_NAV
+                                    hideKeyboardAndClearFocus()
+                                }
+                                -dy > 18f && absDy > absDx * 1.25f -> {
+                                    barDragging = true
+                                    barGestureType = BarGestureType.PULL_REFRESH
+                                    hideKeyboardAndClearFocus()
+                                }
+                            }
+                        }
+                        barDragging
+                    }
+                    else -> false
+                }
+            }
+        }
+
+        bottomBarGestureWrapper.touchCallback = { event ->
             val wv = getActiveWebView()
 
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    barDownX = event.rawX
-                    barDownY = event.rawY
-                    barDownTime = System.currentTimeMillis()
-                    barDragging = false
-                    barGestureType = BarGestureType.NONE
-
-                    bottomBar.animate().cancel()
-                    bottomBar.translationX = 0f
-                    bottomBar.translationY = 0f
-
-                    true
-                }
-
+                MotionEvent.ACTION_DOWN -> true // Consume DOWN if no child handled it
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - barDownX
                     val dy = event.rawY - barDownY
-                    val absDx = kotlin.math.abs(dx)
-                    val absDy = kotlin.math.abs(dy)
-
-                    if (!barDragging) {
-                        when {
-                            absDx > 18f && absDx > absDy * 1.25f -> {
-                                barDragging = true
-                                barGestureType = BarGestureType.HORIZONTAL_NAV
-                                hideKeyboardAndClearFocus()
-                            }
-
-                            -dy > 18f && absDy > absDx * 1.25f -> {
-                                barDragging = true
-                                barGestureType = BarGestureType.PULL_REFRESH
-                                hideKeyboardAndClearFocus()
-                            }
-                        }
-                    }
-
-                    if (!barDragging) {
-                        return@setOnTouchListener true
-                    }
 
                     when (barGestureType) {
                         BarGestureType.HORIZONTAL_NAV -> {
                             val drag = rubberBand(dx, 140f)
                             bottomBar.translationX = drag
                             bottomBar.translationY = 0f
-                            updateBottomBarSwipeHint(drag, wv?.canGoBack() == true, wv?.canGoForward() == true)
                         }
-
                         BarGestureType.PULL_REFRESH -> {
                             val pull = rubberBand(-dy, 96f).coerceAtLeast(0f)
                             bottomBar.translationY = -pull
                             bottomBar.translationX = 0f
-                            updateBottomBarRefreshHint(pull)
                         }
-
                         else -> Unit
                     }
-
                     true
                 }
-
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     val dx = event.rawX - barDownX
                     val dy = event.rawY - barDownY
@@ -611,46 +631,39 @@ class BrowserActivity : AppCompatActivity() {
                         if (dt < 220 && kotlin.math.abs(dx) < 12f && kotlin.math.abs(dy) < 12f) {
                             focusUrlInput()
                         }
-
-                        return@setOnTouchListener true
-                    }
-
-                    when (barGestureType) {
-                        BarGestureType.HORIZONTAL_NAV -> {
-                            when {
-                                dx > 96f && wv?.canGoBack() == true -> {
-                                    wv.goBack()
-                                    bounceBottomBar(72f, 0f)
+                        true
+                    } else {
+                        when (barGestureType) {
+                            BarGestureType.HORIZONTAL_NAV -> {
+                                when {
+                                    dx > 160f && wv?.canGoBack() == true -> {
+                                        wv.goBack()
+                                        bounceBottomBar(72f, 0f)
+                                    }
+                                    dx < -160f && wv?.canGoForward() == true -> {
+                                        wv.goForward()
+                                        bounceBottomBar(-72f, 0f)
+                                    }
+                                    else -> {
+                                        bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                    }
                                 }
-
-                                dx < -96f && wv?.canGoForward() == true -> {
-                                    wv.goForward()
-                                    bounceBottomBar(-72f, 0f)
-                                }
-
-                                else -> {
+                            }
+                            BarGestureType.PULL_REFRESH -> {
+                                if (-dy > 120f) {
+                                    wv?.reload()
+                                    bounceBottomBar(0f, -56f)
+                                } else {
                                     bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
                                 }
                             }
-                        }
-
-                        BarGestureType.PULL_REFRESH -> {
-                            if (-dy > 72f) {
-                                wv?.reload()
-                                bounceBottomBar(0f, -56f)
-                            } else {
+                            else -> {
                                 bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
                             }
                         }
-
-                        else -> {
-                            bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
-                        }
+                        true
                     }
-
-                    true
                 }
-
                 else -> true
             }
         }
@@ -837,7 +850,7 @@ class BrowserActivity : AppCompatActivity() {
         window.statusBarColor = safeBg
         window.navigationBarColor = safeBg
         bottomBar.setBackgroundColor(safeBg)
-        bottomBarContent.setBackgroundColor(safeBg)
+        bottomBarContent.setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
         val isLight = ColorUtils.calculateLuminance(safeBg) > 0.55
 
@@ -954,15 +967,20 @@ class BrowserActivity : AppCompatActivity() {
             cycleOrientationMode()
             dialog.dismiss()
         }
-        view.findViewById<View>(R.id.tool_clear_cache).setOnClickListener {
-            getActiveWebView()?.clearCache(true)
-            Toast.makeText(this, "缓存已清", Toast.LENGTH_SHORT).show()
+        view.findViewById<View>(R.id.tool_history)?.setOnClickListener {
+            val intent = android.content.Intent(this, RecordsActivity::class.java)
+            startActivityForResult(intent, 1001)
             dialog.dismiss()
         }
-        view.findViewById<View>(R.id.tool_clear_cookie).setOnClickListener {
-            CookieManager.getInstance().removeAllCookies(null)
-            Toast.makeText(this, "Cookie已清", Toast.LENGTH_SHORT).show()
+        view.findViewById<View>(R.id.tool_bookmark)?.setOnClickListener {
+            val intent = android.content.Intent(this, RecordsActivity::class.java)
+            intent.putExtra("show_bookmarks", true)
+            startActivityForResult(intent, 1001)
             dialog.dismiss()
+        }
+        view.findViewById<View>(R.id.tool_add_bookmark)?.setOnClickListener {
+            dialog.dismiss()
+            showAddBookmarkDialog()
         }
         view.findViewById<View>(R.id.tool_force_video)?.setOnClickListener {
             forceVideoTakeover()
@@ -974,6 +992,36 @@ class BrowserActivity : AppCompatActivity() {
         }
         view.findViewById<View>(R.id.tool_settings)?.setOnClickListener {
             startActivity(android.content.Intent(this, SettingsActivity::class.java))
+            dialog.dismiss()
+        }
+        
+        val toolIncognito = view.findViewById<View>(R.id.tool_incognito)
+        val imgIncognito = view.findViewById<android.widget.ImageView>(R.id.img_incognito)
+        val txtIncognito = view.findViewById<TextView>(R.id.txt_incognito)
+        
+        fun updateIncognitoUi() {
+            if (browserSettings.isIncognitoMode) {
+                imgIncognito?.setColorFilter(Color.parseColor("#12B7F5"))
+                txtIncognito?.text = "退出无痕"
+                txtIncognito?.setTextColor(Color.parseColor("#12B7F5"))
+            } else {
+                imgIncognito?.setColorFilter(Color.parseColor("#111111"))
+                txtIncognito?.text = "无痕模式"
+                txtIncognito?.setTextColor(Color.parseColor("#555555"))
+            }
+        }
+        updateIncognitoUi()
+        
+        toolIncognito?.setOnClickListener {
+            browserSettings.isIncognitoMode = !browserSettings.isIncognitoMode
+            if (browserSettings.isIncognitoMode) {
+                getActiveWebView()?.clearCache(true)
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                Toast.makeText(this, "已开启无痕模式", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "已退出无痕模式", Toast.LENGTH_SHORT).show()
+            }
+            updateIncognitoUi()
             dialog.dismiss()
         }
 
@@ -1027,7 +1075,7 @@ class BrowserActivity : AppCompatActivity() {
                 val txtTitle = holder.itemView.findViewById<TextView>(R.id.txtTabTitle)
                 val btnClose = holder.itemView.findViewById<ImageButton>(R.id.btnCloseTab)
 
-                txtTitle.text = if (position == activeTabIndex) "★ ${tab.title}" else tab.title
+                txtTitle.text = if (position == activeTabIndex) "> ${tab.title}" else tab.title
 
                 holder.itemView.setOnClickListener {
                     switchTab(holder.bindingAdapterPosition)
@@ -1049,13 +1097,23 @@ class BrowserActivity : AppCompatActivity() {
         recyclerView.adapter = adapter
 
         view.findViewById<View>(R.id.btnAddTab).setOnClickListener {
-            createNewTab("about:blank")
-            adapter.notifyItemInserted(tabs.size - 1)
-            recyclerView.scrollToPosition(tabs.size - 1)
+            val wv = createWebView()
+            val tab = TabInfo(wv, "主页", "about:blank")
+            tabs.add(tab)
+            webViewContainer.addView(wv, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT, 
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            ))
             
-            // 延迟一点时间再收起弹窗，让用户看到添加的动画
+            val newIndex = tabs.size - 1
+            adapter.notifyItemInserted(newIndex)
+            recyclerView.scrollToPosition(newIndex)
+            
+            // 延迟一点时间再收起弹窗，让用户看到卡片滑入的动画
             view.postDelayed({
                 dialog.dismiss()
+                // 等弹窗开始收起时，再切换底层背景图层，实现完美的过渡体验
+                view.postDelayed({ switchTab(newIndex) }, 100)
             }, 300)
         }
 
@@ -1193,6 +1251,12 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
+    private var activeCandidateFilter: CandidateFilter = CandidateFilter.ALL
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
     @SuppressLint("SetTextI18n")
     private fun showVideoCandidateSheet() {
         val dialog = BottomSheetDialog(this)
@@ -1202,41 +1266,367 @@ class BrowserActivity : AppCompatActivity() {
         val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
         bottomSheet?.setBackgroundResource(android.R.color.transparent)
 
-        val container = view.findViewById<android.widget.LinearLayout>(R.id.candidateListContainer)
-        val candidates = resourceRegistry.listSorted()
+        val title = view.findViewById<TextView>(R.id.txtCandidateSheetTitle)
+        val subtitle = view.findViewById<TextView>(R.id.txtCandidateSheetSubtitle)
+        val filterChipContainer = view.findViewById<android.widget.LinearLayout>(R.id.filterChipContainer)
+        val candidateListContainer = view.findViewById<android.widget.LinearLayout>(R.id.candidateListContainer)
+        val candidateScrollView = view.findViewById<android.widget.ScrollView>(R.id.candidateScrollView)
 
-        if (candidates.isEmpty()) {
-            val emptyTxt = TextView(this).apply {
-                text = "未发现任何可接管资源"
-                setPadding(32, 64, 32, 64)
-                gravity = android.view.Gravity.CENTER
+        val allCandidates = resourceRegistry.listSorted().sortedByDescending { uiScore(it) }
+
+        fun render() {
+            val filtered = filterCandidates(allCandidates, activeCandidateFilter)
+
+            title.text = "已检测到的资源"
+            subtitle.text = buildCandidateSubtitle(
+                total = allCandidates.size,
+                filtered = filtered.size,
+                filter = activeCandidateFilter
+            )
+
+            renderFilterChips(
+                container = filterChipContainer,
+                candidates = allCandidates,
+                activeFilter = activeCandidateFilter
+            ) { selected ->
+                activeCandidateFilter = selected
+                render()
             }
-            container.addView(emptyTxt)
-        } else {
-            candidates.forEach { candidate ->
-                val item = layoutInflater.inflate(R.layout.item_video_candidate, container, false)
-                val title = item.findViewById<TextView>(R.id.txtCandidateTitle)
-                val subtitle = item.findViewById<TextView>(R.id.txtCandidateSubtitle)
-                val tag = item.findViewById<TextView>(R.id.txtCandidateTag)
 
-                title.text = candidate.title
-                subtitle.text = "${candidate.host ?: "unknown"} | ${candidate.reason}"
-                tag.text = candidate.type.name
-
-                item.setOnClickListener {
+            renderCandidateList(
+                container = candidateListContainer,
+                candidates = filtered,
+                onFilterClick = { selected ->
+                    activeCandidateFilter = selected
+                    render()
+                    candidateScrollView.smoothScrollTo(0, 0)
+                },
+                onCandidateClick = { candidate ->
                     handleCandidateClick(candidate)
                     dialog.dismiss()
                 }
-                container.addView(item)
-            }
+            )
         }
+
+        activeCandidateFilter = defaultFilterForCandidates(allCandidates)
+        render()
 
         dialog.show()
     }
 
+    private fun filterCandidates(
+        candidates: List<VideoCandidate>,
+        filter: CandidateFilter
+    ): List<VideoCandidate> {
+        if (filter == CandidateFilter.ALL) return candidates
+
+        return candidates.filter { candidate ->
+            filtersForCandidate(candidate).contains(filter)
+        }
+    }
+
+    private fun buildCandidateSubtitle(
+        total: Int,
+        filtered: Int,
+        filter: CandidateFilter
+    ): String {
+        return if (filter == CandidateFilter.ALL) {
+            "共 $total 项"
+        } else {
+            "共 $total 项 · ${filter.label} $filtered 项"
+        }
+    }
+
+    private fun availableFilters(candidates: List<VideoCandidate>): List<CandidateFilter> {
+        val set = linkedSetOf<CandidateFilter>()
+        set.add(CandidateFilter.ALL)
+
+        candidates.forEach { candidate ->
+            set.addAll(filtersForCandidate(candidate))
+        }
+
+        return set.toList()
+    }
+
+    private fun renderFilterChips(
+        container: android.widget.LinearLayout,
+        candidates: List<VideoCandidate>,
+        activeFilter: CandidateFilter,
+        onClick: (CandidateFilter) -> Unit
+    ) {
+        container.removeAllViews()
+
+        val filters = availableFilters(candidates)
+
+        filters.forEach { filter ->
+            val count = if (filter == CandidateFilter.ALL) {
+                candidates.size
+            } else {
+                candidates.count { filtersForCandidate(it).contains(filter) }
+            }
+
+            val chip = createFilterChip(
+                text = "${filter.label} $count",
+                selected = filter == activeFilter
+            )
+
+            chip.setOnClickListener {
+                onClick(filter)
+            }
+
+            container.addView(chip)
+        }
+    }
+
+    private fun createFilterChip(text: String, selected: Boolean): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            setTextColor(
+                if (selected) android.graphics.Color.WHITE else android.graphics.Color.parseColor("#333333")
+            )
+            background = androidx.core.content.ContextCompat.getDrawable(
+                this@BrowserActivity,
+                if (selected) R.drawable.bg_filter_chip_selected else R.drawable.bg_filter_chip_normal
+            )
+
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.marginEnd = dp(8)
+            layoutParams = lp
+        }
+    }
+
+    private fun renderCandidateList(
+        container: android.widget.LinearLayout,
+        candidates: List<VideoCandidate>,
+        onFilterClick: (CandidateFilter) -> Unit,
+        onCandidateClick: (VideoCandidate) -> Unit
+    ) {
+        container.removeAllViews()
+
+        if (candidates.isEmpty()) {
+            val empty = TextView(this).apply {
+                text = "当前分类下没有资源"
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp(24), dp(48), dp(24), dp(48))
+                textSize = 14f
+                setTextColor(android.graphics.Color.parseColor("#8E8E93"))
+            }
+            container.addView(empty)
+            return
+        }
+
+        candidates.forEach { candidate ->
+            val item = layoutInflater.inflate(R.layout.item_video_candidate, container, false)
+
+            val title = item.findViewById<TextView>(R.id.txtCandidateTitle)
+            val subtitle = item.findViewById<TextView>(R.id.txtCandidateSubtitle)
+            val detail = item.findViewById<TextView>(R.id.txtCandidateDetail)
+            val chipContainer = item.findViewById<android.widget.LinearLayout>(R.id.cardChipContainer)
+
+            title.text = candidate.title
+            subtitle.text = "${candidate.host ?: "unknown"} · ${candidate.reason}"
+            detail.text = detailForCandidate(candidate)
+
+            renderCardChips(
+                container = chipContainer,
+                candidate = candidate,
+                onFilterClick = onFilterClick
+            )
+
+            item.setOnClickListener {
+                onCandidateClick(candidate)
+            }
+
+            container.addView(item)
+        }
+    }
+
+    private fun renderCardChips(
+        container: android.widget.LinearLayout,
+        candidate: VideoCandidate,
+        onFilterClick: (CandidateFilter) -> Unit
+    ) {
+        container.removeAllViews()
+
+        chipsForCandidate(candidate).forEach { chipData ->
+            val chip = createCandidateChip(chipData)
+
+            chip.setOnClickListener {
+                onFilterClick(chipData.filter)
+            }
+
+            container.addView(chip)
+        }
+    }
+
+    private fun createCandidateChip(chip: ResourceChip): TextView {
+        val bg = when (chip.level) {
+            ChipLevel.PRIMARY -> R.drawable.bg_chip_primary
+            ChipLevel.INFO -> R.drawable.bg_chip_info
+            ChipLevel.WARNING -> R.drawable.bg_chip_warning
+            ChipLevel.DANGER -> R.drawable.bg_chip_danger
+        }
+
+        val textColor = when (chip.level) {
+            ChipLevel.PRIMARY -> android.graphics.Color.parseColor("#007AFF")
+            ChipLevel.INFO -> android.graphics.Color.parseColor("#5F6368")
+            ChipLevel.WARNING -> android.graphics.Color.parseColor("#B26A00")
+            ChipLevel.DANGER -> android.graphics.Color.parseColor("#D32F2F")
+        }
+
+        return TextView(this).apply {
+            text = chip.text
+            textSize = 12f
+            setTextColor(textColor)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = androidx.core.content.ContextCompat.getDrawable(this@BrowserActivity, bg)
+            isClickable = true
+            isFocusable = true
+
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.marginEnd = dp(6)
+            layoutParams = lp
+        }
+    }
+
+    private fun filtersForCandidate(candidate: VideoCandidate): Set<CandidateFilter> {
+        return when (candidate.type) {
+            CandidateType.DOM_VIDEO -> setOf(
+                CandidateFilter.RECOMMENDED,
+                CandidateFilter.CONTROLLABLE
+            )
+            CandidateType.DOM_BLOB_VIDEO -> setOf(
+                CandidateFilter.RECOMMENDED,
+                CandidateFilter.CONTROLLABLE,
+                CandidateFilter.BLOB
+            )
+            CandidateType.IFRAME_PLAYER -> setOf(
+                CandidateFilter.IFRAME,
+                CandidateFilter.CONTROLLABLE
+            )
+            CandidateType.HLS_MASTER,
+            CandidateType.HLS_MEDIA -> setOf(
+                CandidateFilter.HLS
+            )
+            CandidateType.MP4,
+            CandidateType.WEBM,
+            CandidateType.DASH -> setOf(
+                CandidateFilter.FILE
+            )
+            CandidateType.BLOB_HINT -> setOf(
+                CandidateFilter.BLOB,
+                CandidateFilter.DIAGNOSTIC
+            )
+            CandidateType.FRAGMENT -> setOf(
+                CandidateFilter.FRAGMENT,
+                CandidateFilter.DIAGNOSTIC
+            )
+            CandidateType.CUSTOM_VIEW -> setOf(
+                CandidateFilter.DIAGNOSTIC
+            )
+        }
+    }
+
+    private fun chipsForCandidate(candidate: VideoCandidate): List<ResourceChip> {
+        return when (candidate.type) {
+            CandidateType.DOM_BLOB_VIDEO -> listOf(
+                ResourceChip("可接管", CandidateFilter.CONTROLLABLE, ChipLevel.PRIMARY),
+                ResourceChip("Blob", CandidateFilter.BLOB, ChipLevel.INFO),
+                ResourceChip("不可外放", CandidateFilter.BLOB, ChipLevel.WARNING)
+            )
+            CandidateType.DOM_VIDEO -> listOf(
+                ResourceChip("可接管", CandidateFilter.CONTROLLABLE, ChipLevel.PRIMARY),
+                ResourceChip("DOM", CandidateFilter.CONTROLLABLE, ChipLevel.INFO)
+            )
+            CandidateType.IFRAME_PLAYER -> listOf(
+                ResourceChip("iframe", CandidateFilter.IFRAME, ChipLevel.INFO),
+                ResourceChip("进入播放器页", CandidateFilter.IFRAME, ChipLevel.PRIMARY)
+            )
+            CandidateType.HLS_MASTER -> listOf(
+                ResourceChip("HLS", CandidateFilter.HLS, ChipLevel.INFO),
+                ResourceChip("主列表", CandidateFilter.HLS, ChipLevel.PRIMARY),
+                ResourceChip("可尝试", CandidateFilter.HLS, ChipLevel.WARNING)
+            )
+            CandidateType.HLS_MEDIA -> listOf(
+                ResourceChip("HLS", CandidateFilter.HLS, ChipLevel.INFO),
+                ResourceChip("子清晰度", CandidateFilter.HLS, ChipLevel.WARNING)
+            )
+            CandidateType.MP4,
+            CandidateType.WEBM -> listOf(
+                ResourceChip("直链", CandidateFilter.FILE, ChipLevel.INFO),
+                ResourceChip("可尝试", CandidateFilter.FILE, ChipLevel.PRIMARY)
+            )
+            CandidateType.DASH -> listOf(
+                ResourceChip("DASH", CandidateFilter.FILE, ChipLevel.INFO),
+                ResourceChip("可尝试", CandidateFilter.FILE, ChipLevel.WARNING)
+            )
+            CandidateType.FRAGMENT -> listOf(
+                ResourceChip("分片", CandidateFilter.FRAGMENT, ChipLevel.WARNING),
+                ResourceChip("非入口", CandidateFilter.DIAGNOSTIC, ChipLevel.DANGER)
+            )
+            CandidateType.BLOB_HINT -> listOf(
+                ResourceChip("Blob线索", CandidateFilter.BLOB, ChipLevel.WARNING),
+                ResourceChip("诊断", CandidateFilter.DIAGNOSTIC, ChipLevel.INFO)
+            )
+            CandidateType.CUSTOM_VIEW -> listOf(
+                ResourceChip("网页全屏", CandidateFilter.DIAGNOSTIC, ChipLevel.INFO)
+            )
+        }
+    }
+
+    private fun detailForCandidate(candidate: VideoCandidate): String {
+        return when (candidate.type) {
+            CandidateType.DOM_BLOB_VIDEO -> "网页内部 blob 视频，可用本应用控件接管；不能导入原生 HLS 播放器。"
+            CandidateType.DOM_VIDEO -> "页面内 video，可直接进入自定义全屏控件。"
+            CandidateType.IFRAME_PLAYER -> "跨域播放器页，点击后进入 iframe 顶层页面再尝试接管。"
+            CandidateType.HLS_MASTER -> "HLS 主播放列表，可尝试用原生播放器打开；若失败请改用 DOM 接管。"
+            CandidateType.HLS_MEDIA -> "HLS 子清晰度列表，通常不是最优先入口。"
+            CandidateType.MP4,
+            CandidateType.WEBM -> "媒体直链，可尝试用原生播放器打开。"
+            CandidateType.DASH -> "DASH 流，可尝试用原生播放器打开。"
+            CandidateType.BLOB_HINT -> "blob 线索，仅表示网页内部播放对象存在。"
+            CandidateType.FRAGMENT -> "媒体分片，不是完整播放入口。"
+            CandidateType.CUSTOM_VIEW -> "网页原生全屏入口，可作为兜底。"
+        }
+    }
+
+    private fun defaultFilterForCandidates(candidates: List<VideoCandidate>): CandidateFilter {
+        return when {
+            candidates.any { it.type == CandidateType.DOM_BLOB_VIDEO || it.type == CandidateType.DOM_VIDEO } -> CandidateFilter.RECOMMENDED
+            candidates.any { it.type == CandidateType.IFRAME_PLAYER } -> CandidateFilter.IFRAME
+            candidates.any { it.type == CandidateType.HLS_MASTER || it.type == CandidateType.HLS_MEDIA } -> CandidateFilter.HLS
+            else -> CandidateFilter.ALL
+        }
+    }
+
+    private fun uiScore(candidate: VideoCandidate): Int {
+        val base = when (candidate.type) {
+            CandidateType.DOM_BLOB_VIDEO -> 10_000
+            CandidateType.DOM_VIDEO -> 9_500
+            CandidateType.IFRAME_PLAYER -> 8_000
+            CandidateType.HLS_MASTER -> 7_000
+            CandidateType.HLS_MEDIA -> 6_500
+            CandidateType.MP4 -> 6_200
+            CandidateType.WEBM -> 6_100
+            CandidateType.DASH -> 6_000
+            CandidateType.BLOB_HINT -> 3_000
+            CandidateType.FRAGMENT -> 1_000
+            CandidateType.CUSTOM_VIEW -> 2_500
+        }
+        return base + candidate.score + candidate.confidence
+    }
+
     private fun handleCandidateClick(candidate: VideoCandidate) {
         when (candidate.type) {
-            CandidateType.DOM_VIDEO -> {
+            CandidateType.DOM_VIDEO, CandidateType.DOM_BLOB_VIDEO -> {
                 enterFullscreenForDomVideo(candidate)
             }
             CandidateType.IFRAME_PLAYER -> {
@@ -1396,18 +1786,31 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun cycleOrientationMode() {
         orientationMode = when (orientationMode) {
-            OrientationMode.SENSOR -> OrientationMode.PORTRAIT
-            OrientationMode.PORTRAIT -> OrientationMode.LANDSCAPE
-            else -> OrientationMode.SENSOR
+            OrientationMode.SENSOR -> {
+                if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {
+                    OrientationMode.LANDSCAPE
+                } else {
+                    OrientationMode.PORTRAIT
+                }
+            }
+            OrientationMode.LANDSCAPE -> OrientationMode.PORTRAIT
+            OrientationMode.PORTRAIT -> OrientationMode.SENSOR
         }
         applyOrientationMode()
+        
+        val modeStr = when (orientationMode) {
+            OrientationMode.SENSOR -> "自动旋转"
+            OrientationMode.PORTRAIT -> "锁定竖屏"
+            OrientationMode.LANDSCAPE -> "锁定横屏"
+        }
+        android.widget.Toast.makeText(this, "屏幕方向: $modeStr", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun applyOrientationMode() {
         requestedOrientation = when (orientationMode) {
-            OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -1592,5 +1995,72 @@ class BrowserActivity : AppCompatActivity() {
                 updateResourceFabVisibility()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val prefs = getSharedPreferences("browser_prefs", MODE_PRIVATE)
+        if (prefs.getBoolean("pending_clear_cache", false)) {
+            getActiveWebView()?.clearCache(true)
+            prefs.edit().remove("pending_clear_cache").apply()
+            Toast.makeText(this, "浏览器缓存已清除", Toast.LENGTH_SHORT).show()
+        }
+        if (prefs.getBoolean("pending_clear_cookie", false)) {
+            CookieManager.getInstance().removeAllCookies(null)
+            prefs.edit().remove("pending_clear_cookie").apply()
+            Toast.makeText(this, "Cookie 已清除", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 1001 && resultCode == Activity.RESULT_OK) {
+            data?.getStringExtra("url")?.let { url ->
+                loadUrl(url)
+            }
+        }
+    }
+
+    private fun showAddBookmarkDialog() {
+        val dialog = BottomSheetDialog(this)
+        val view = layoutInflater.inflate(R.layout.layout_bottom_sheet_add_bookmark, null)
+        
+        val editTitle = view.findViewById<android.widget.EditText>(R.id.editBookmarkTitle)
+        val editUrl = view.findViewById<android.widget.EditText>(R.id.editBookmarkUrl)
+        
+        val currentTab = tabs.getOrNull(activeTabIndex)
+        editTitle.setText(currentTab?.title ?: "")
+        editUrl.setText(currentTab?.url ?: "")
+        
+        view.findViewById<View>(R.id.btnCancel).setOnClickListener { dialog.dismiss() }
+        view.findViewById<View>(R.id.btnConfirm).setOnClickListener {
+            val title = editTitle.text.toString().trim()
+            val url = editUrl.text.toString().trim()
+            
+            if (url.isNotEmpty()) {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    com.zzz.webvideobrowser.db.BrowserDatabase.getDatabase(this@BrowserActivity)
+                        .browserDao()
+                        .insertBookmark(
+                            com.zzz.webvideobrowser.db.BookmarkRecord(
+                                title = title,
+                                url = url,
+                                timestamp = System.currentTimeMillis()
+                            )
+                        )
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@BrowserActivity, "书签已保存", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                dialog.dismiss()
+            } else {
+                Toast.makeText(this, "网址不能为空", Toast.LENGTH_SHORT).show()
+            }
+        }
+        
+        dialog.setContentView(view)
+        dialog.window?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.setBackgroundResource(android.R.color.transparent)
+        dialog.show()
     }
 }
