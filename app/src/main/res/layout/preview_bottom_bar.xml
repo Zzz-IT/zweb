@@ -3,9 +3,7 @@
     android:id="@+id/bottomBar"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:paddingBottom="150dp"
-    android:layout_marginBottom="-150dp">
+    android:orientation="vertical">
 
     <!-- 进度条 (物理吸附在搜索栏最顶端) -->
     <ProgressBar

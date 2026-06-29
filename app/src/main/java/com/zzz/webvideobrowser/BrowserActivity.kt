@@ -491,10 +491,6 @@ class BrowserActivity : AppCompatActivity() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupBottomBarGesture() {
-        urlInput.setOnFocusChangeListener { _, hasFocus ->
-            findViewById<View>(R.id.bottomBarGestureWrapper)?.visibility = if (hasFocus) View.GONE else View.VISIBLE
-        }
-
         btnGo.setOnClickListener { openInput(urlInput.text.toString()) }
         urlInput.setOnEditorActionListener { _, _, _ ->
             openInput(urlInput.text.toString())
