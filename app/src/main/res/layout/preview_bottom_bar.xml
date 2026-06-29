@@ -3,7 +3,9 @@
     android:id="@+id/bottomBar"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
     <!-- 进度条 (物理吸附在搜索栏最顶端) -->
     <ProgressBar
@@ -18,7 +20,9 @@
     <com.zzz.webvideobrowser.GestureInterceptLayout
         android:id="@+id/bottomBarGestureWrapper"
         android:layout_width="match_parent"
-        android:layout_height="72dp"
+        android:layout_height="116dp"
+        android:layout_marginTop="-44dp"
+        android:paddingTop="44dp"
         android:clipChildren="false"
         android:clipToPadding="false">
 
@@ -28,8 +32,8 @@
             android:layout_height="72dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingLeft="12dp"
-            android:paddingRight="12dp">
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp">
 
             <FrameLayout
                 android:id="@+id/addressContainerFrame"
@@ -66,33 +70,33 @@
 
             <ImageButton
                 android:id="@+id/btnGo"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_ripple_rounded"
                 android:src="@drawable/ic_go"
                 android:scaleType="centerInside" />
 
             <ImageButton
                 android:id="@+id/btnHome"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_ripple_rounded"
                 android:src="@drawable/ic_home"
                 android:scaleType="centerInside" />
 
             <ImageButton
                 android:id="@+id/btnTabs"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_ripple_rounded"
                 android:src="@drawable/ic_tabs"
                 android:scaleType="centerInside" />
 
             <ImageButton
                 android:id="@+id/btnTool"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_ripple_rounded"
                 android:src="@drawable/ic_tool"
                 android:scaleType="centerInside" />
         </LinearLayout>

@@ -3,7 +3,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F7">
+    android:background="#FFFFFF"
+    android:fitsSystemWindows="true">
 
     <!-- Top Bar -->
     <RelativeLayout
@@ -17,7 +18,7 @@
             android:layout_alignParentStart="true"
             android:layout_centerVertical="true"
             android:layout_marginStart="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_arrow_back"
             android:scaleType="centerInside" />
 
@@ -57,7 +58,7 @@
             android:text="清除"
             android:textSize="16sp"
             android:textColor="#FF3B30"
-            android:background="?android:attr/selectableItemBackground"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
             android:paddingHorizontal="16dp" />
     </RelativeLayout>
 
@@ -65,10 +66,9 @@
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginHorizontal="16dp"
         android:layout_marginTop="8dp"
-        android:layout_marginBottom="16dp"
-        android:background="@drawable/bg_capsule"
-        android:clipToPadding="true"
+        android:background="@android:color/transparent"
+        android:clipToPadding="false"
+        android:paddingBottom="16dp"
         android:overScrollMode="never" />
 </LinearLayout>

@@ -3,5 +3,26 @@
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
+        <item name="bottomSheetDialogTheme">@style/MiuixBottomSheetDialogTheme</item>
+        <item name="android:listSelector">@android:color/transparent</item>
+    </style>
+
+    <style name="MiuixBottomSheetDialogTheme" parent="Theme.Design.Light.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/MiuixBottomSheetStyle</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+        <item name="android:windowAnimationStyle">@style/MiuixBottomSheetAnimation</item>
+    </style>
+
+    <style name="MiuixBottomSheetAnimation">
+        <item name="android:windowEnterAnimation">@anim/miuix_bottom_sheet_enter</item>
+        <item name="android:windowExitAnimation">@anim/miuix_bottom_sheet_exit</item>
+    </style>
+
+    <style name="MiuixBottomSheetStyle" parent="Widget.Design.BottomSheet.Modal">
+        <item name="backgroundTint">@android:color/transparent</item>
+        <item name="behavior_peekHeight">1000dp</item>
+        <item name="behavior_hideable">true</item>
+        <item name="behavior_skipCollapsed">true</item>
     </style>
 </resources>

@@ -48,11 +48,9 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var webViewContainer: FrameLayout
     private val tabs = mutableListOf<TabInfo>()
     private var activeTabIndex = -1
-    private var nextTabId = 1L
     
     data class TabInfo(
-        val webView: WebView,
-        val id: Long,
+        val webView: WebView, 
         var title: String, 
         var url: String, 
         var themeColor: Int? = null,
@@ -60,14 +58,10 @@ class BrowserActivity : AppCompatActivity() {
         var isVideoPaused: Boolean = true,
         var activeVideoId: String? = null,
         var videoBindReason: String? = null,
-        var sniffedMediaList: MutableList<String> = mutableListOf(),
-        val resourceRegistry: ResourceRegistry = ResourceRegistry()
+        var sniffedMediaList: MutableList<String> = mutableListOf()
     )
     
-    private fun getActiveTab(): TabInfo? = tabs.getOrNull(activeTabIndex)
-    private fun getTabForWebView(wv: WebView): TabInfo? = tabs.find { it.webView == wv }
-    private fun getActiveResourceRegistry(): ResourceRegistry? = getActiveTab()?.resourceRegistry
-    private fun getActiveWebView(): WebView? = getActiveTab()?.webView
+    private fun getActiveWebView(): WebView? = if (activeTabIndex in tabs.indices) tabs[activeTabIndex].webView else null
 
     private lateinit var urlRouter: BrowserUrlRouter
 
@@ -83,7 +77,6 @@ class BrowserActivity : AppCompatActivity() {
 
     private lateinit var homeSearchInput: EditText
     private lateinit var btnHomeGo: ImageButton
-    private lateinit var txtHomeLogo: TextView
     private lateinit var urlInput: EditText
     private lateinit var btnGo: ImageButton
     private lateinit var btnHome: ImageButton
@@ -91,6 +84,7 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var btnTool: ImageButton
 
     private lateinit var btnResourceHub: ImageButton
+    private val resourceRegistry = ResourceRegistry()
     private lateinit var browserSettings: BrowserSettings
     private lateinit var adBlockEngine: AdBlockEngine
 
@@ -135,7 +129,6 @@ class BrowserActivity : AppCompatActivity() {
         browserSettings = BrowserSettings(this)
         adBlockEngine = AdBlockEngine(this)
         viewModel = ViewModelProvider(this)[BrowserViewModel::class.java]
-
         val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         WebView.setWebContentsDebuggingEnabled(isDebuggable)
         setContentView(R.layout.activity_browser)
@@ -152,38 +145,6 @@ class BrowserActivity : AppCompatActivity() {
         setupPlayerControls()
     }
 
-    private fun clearActivePlaybackState() {
-        activeVideoId = null
-        videoBindReason = ""
-        currentPosition = 0.0
-        currentDuration = 0.0
-        isPaused = true
-        currentRate = 1.0
-        lastVideoActivatedAt = 0L
-        lastVideoProgressAt = 0L
-        updateProgressUi()
-    }
-
-    private fun clearTabMediaState(tab: TabInfo, clearDiagnostics: Boolean, clearResources: Boolean) {
-        tab.hasVideo = false
-        tab.isVideoPaused = true
-        tab.activeVideoId = null
-        tab.videoBindReason = null
-
-        if (clearDiagnostics) {
-            tab.sniffedMediaList.clear()
-        }
-
-        if (clearResources) {
-            tab.resourceRegistry.clearAll()
-        }
-
-        if (getActiveTab() == tab) {
-            clearActivePlaybackState()
-            updateResourceFabVisibility()
-        }
-    }
-
     private fun setupViewModel() {
         viewModel.uiMode.observe(this) { mode ->
             applyUiMode(mode)
@@ -198,20 +159,8 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("ClickableViewAccessibility")
     private fun bindViews() {
         rootContainer = findViewById(R.id.rootContainer)
-        
-        // 点击底栏以上区域自动取消地址栏输入状态
-        rootContainer.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                if (urlInput.hasFocus() || homeSearchInput.hasFocus()) {
-                    hideKeyboardAndClearFocus()
-                }
-            }
-            false // 不拦截，让事件继续传递给子 View（WebView、首页等）
-        }
-
         webViewContainer = findViewById(R.id.webViewContainer)
         homeLayer = findViewById(R.id.homeLayer)
         bottomBar = findViewById(R.id.bottomBar)
@@ -224,7 +173,6 @@ class BrowserActivity : AppCompatActivity() {
 
         homeSearchInput = findViewById(R.id.homeSearchInput)
         btnHomeGo = findViewById(R.id.btnHomeGo)
-        txtHomeLogo = findViewById(R.id.txtHomeLogo)
         urlInput = findViewById(R.id.urlInput)
         btnGo = findViewById(R.id.btnGo)
         btnHome = findViewById(R.id.btnHome)
@@ -244,9 +192,6 @@ class BrowserActivity : AppCompatActivity() {
         txtSeekOverlay = findViewById(R.id.txtSeekOverlay)
 
         fullscreenGestureLayer = findViewById(R.id.fullscreenGestureLayer)
-        
-        // 立即设置 pivotY，并在每次绘制前确保其正确，消除缩放延迟
-        bottomBarDragUnderlay.pivotY = dp(72).toFloat()
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
@@ -418,7 +363,7 @@ class BrowserActivity : AppCompatActivity() {
             return
         }
         val wv = createWebView()
-        val tab = TabInfo(wv, nextTabId++, "主页", url)
+        val tab = TabInfo(wv, "主页", url)
         tabs.add(tab)
         webViewContainer.addView(wv, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, 
@@ -497,30 +442,6 @@ class BrowserActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun enterHomeMode(clearCurrentPage: Boolean = false) {
-        val tab = getActiveTab()
-        if (tab != null) {
-            if (clearCurrentPage) {
-                // 用户点击主页按钮：
-                // 1. 切换到首页模式
-                viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
-                // 2. 清除当前页面的嗅探状态和视频绑定（核心清理逻辑）
-                clearTabMediaState(tab = tab, clearDiagnostics = true, clearResources = true)
-                // 3. UI 重置，但由于不调用 loadUrl("about:blank")，WebView 的历史栈被保留
-                urlInput.setText("")
-                homeSearchInput.setText("")
-                btnResourceHub.visibility = View.GONE
-                return
-            }
-            // 正常的非清理模式进入（如初次打开）
-            clearTabMediaState(tab = tab, clearDiagnostics = true, clearResources = true)
-        }
-        urlInput.setText("")
-        homeSearchInput.setText("")
-        btnResourceHub.visibility = View.GONE
-        viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
-    }
-
     private fun setupHome() {
         homeSearchInput.setOnEditorActionListener { _, _, _ ->
             openInput(homeSearchInput.text.toString())
@@ -528,12 +449,6 @@ class BrowserActivity : AppCompatActivity() {
         }
         btnHomeGo.setOnClickListener {
             openInput(homeSearchInput.text.toString())
-        }
-        txtHomeLogo.setOnLongClickListener {
-            val intent = Intent(this, RecordsActivity::class.java)
-            intent.putExtra("show_bookmarks", true)
-            startActivityForResult(intent, 1001)
-            true
         }
     }
 
@@ -553,21 +468,19 @@ class BrowserActivity : AppCompatActivity() {
         return sign * (limit * abs / (abs + limit))
     }
 
-    companion object {
-        private const val BAR_GESTURE_START_SLOP = 30f
-        private const val BAR_NAV_TRIGGER = 160f
-        private const val BAR_REFRESH_TRIGGER = 120f
-        private const val BAR_HORIZONTAL_ELASTIC_LIMIT = 220f
-        private const val BAR_VERTICAL_ELASTIC_LIMIT = 170f
-    }
+    private const val BAR_GESTURE_START_SLOP = 30f
+    private const val BAR_NAV_TRIGGER = 160f
+    private const val BAR_REFRESH_TRIGGER = 120f
+    private const val BAR_HORIZONTAL_ELASTIC_LIMIT = 220f
+    private const val BAR_VERTICAL_ELASTIC_LIMIT = 170f
 
     private fun resetBottomBarUnderlay() {
         bottomBarDragUnderlay.scaleY = 1f
     }
 
     private fun updateBottomBarUnderlayPull(pull: Float) {
-        // 使用固定高度 72dp 作为基准，避免 ProgressBar 动态显隐导致的计算偏差
-        val baseHeight = dp(72)
+        val baseHeight = bottomBar.height.takeIf { it > 0 } ?: dp(72)
+        bottomBarDragUnderlay.pivotY = bottomBarDragUnderlay.height.toFloat()
         bottomBarDragUnderlay.scaleY = (baseHeight + pull.coerceAtLeast(0f)) / baseHeight.toFloat()
     }
 
@@ -579,42 +492,21 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun bounceBottomBar(fromX: Float, fromY: Float) {
-        if (fromX == 0f && fromY == 0f) {
-            bottomBar.translationX = 0f
-            bottomBar.translationY = 0f
-            bottomBarDragUnderlay.scaleY = 1f
-            barDragging = false
-            barGestureType = BarGestureType.NONE
-            bottomGestureHint.visibility = View.GONE
-            return
-        }
+        bottomBar.translationX = fromX
+        bottomBar.translationY = fromY
 
-        val underlayStartScale = bottomBarDragUnderlay.scaleY
-        
-        val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 120 // 更快的响应
-            interpolator = android.view.animation.LinearInterpolator() // 线性恢复，减少视觉上的粘滞感
-            addUpdateListener { anim ->
-                val fraction = anim.animatedValue as Float
-                bottomBar.translationX = fromX * (1 - fraction)
-                bottomBar.translationY = fromY * (1 - fraction)
-                
-                if (underlayStartScale > 1f) {
-                    bottomBarDragUnderlay.scaleY = 1f + (underlayStartScale - 1f) * (1 - fraction)
-                }
+        bottomBar.animate()
+            .translationX(0f)
+            .translationY(0f)
+            .setDuration(240)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.45f))
+            .withEndAction {
+                barDragging = false
+                barGestureType = BarGestureType.NONE
+                bottomGestureHint.visibility = View.GONE
+                resetBottomBarUnderlay()
             }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    bottomBar.translationX = 0f
-                    bottomBar.translationY = 0f
-                    bottomBarDragUnderlay.scaleY = 1f
-                    barDragging = false
-                    barGestureType = BarGestureType.NONE
-                    bottomGestureHint.visibility = View.GONE
-                }
-            })
-        }
-        animator.start()
+            .start()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -626,34 +518,38 @@ class BrowserActivity : AppCompatActivity() {
         }
 
         btnHome.setOnClickListener {
-            enterHomeMode(clearCurrentPage = true)
+            val wv = getActiveWebView()
+            if (wv != null) {
+                wv.loadUrl("about:blank")
+                val tab = tabs.getOrNull(activeTabIndex)
+                if (tab != null) {
+                    tab.url = "about:blank"
+                    tab.sniffedMediaList.clear()
+                    tab.activeVideoId = null
+                    tab.videoBindReason = null
+                }
+                resourceRegistry.clearAll()
+                urlInput.setText("")
+                updateResourceFabVisibility()
+            }
+            viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
         }
         btnTabs.setOnClickListener { showTabsMenu() }
         btnTabs.setOnLongClickListener {
-            val dialog = BottomSheetDialog(this)
-            val view = layoutInflater.inflate(R.layout.layout_bottom_sheet_confirm, null)
-            
-            view.findViewById<TextView>(R.id.txtConfirmTitle).text = "清除窗口"
-            view.findViewById<TextView>(R.id.txtConfirmMessage).text = "确定要关闭所有窗口吗？"
-            val btnConfirm = view.findViewById<TextView>(R.id.btnConfirm)
-            btnConfirm.text = "确定"
-            btnConfirm.setBackgroundResource(R.drawable.bg_btn_danger)
-            
-            view.findViewById<View>(R.id.btnCancel).setOnClickListener { dialog.dismiss() }
-            btnConfirm.setOnClickListener {
-                val size = tabs.size
-                for (i in size - 1 downTo 0) {
-                    closeTab(i)
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("清除窗口")
+                .setMessage("确定要关闭所有窗口吗？")
+                .setPositiveButton("确定") { _, _ ->
+                    val size = tabs.size
+                    for (i in size - 1 downTo 0) {
+                        closeTab(i)
+                    }
+                    if (tabs.isEmpty()) {
+                        createNewTab("about:blank")
+                    }
                 }
-                if (tabs.isEmpty()) {
-                    createNewTab("about:blank")
-                }
-                dialog.dismiss()
-            }
-            
-            dialog.setContentView(view)
-            dialog.window?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.setBackgroundResource(android.R.color.transparent)
-            dialog.show()
+                .setNegativeButton("取消", null)
+                .show()
             true
         }
         btnTool.setOnClickListener { showToolMenu() }
@@ -686,13 +582,11 @@ class BrowserActivity : AppCompatActivity() {
                                 absDx > BAR_GESTURE_START_SLOP && absDx > absDy * 1.45f -> {
                                     barDragging = true
                                     barGestureType = BarGestureType.HORIZONTAL_NAV
-                                    bottomBarGestureWrapper.parent?.requestDisallowInterceptTouchEvent(true)
                                     hideKeyboardAndClearFocus()
                                 }
                                 -dy > BAR_GESTURE_START_SLOP && absDy > absDx * 1.45f -> {
                                     barDragging = true
                                     barGestureType = BarGestureType.PULL_REFRESH
-                                    bottomBarGestureWrapper.parent?.requestDisallowInterceptTouchEvent(true)
                                     hideKeyboardAndClearFocus()
                                 }
                             }
@@ -1030,12 +924,11 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun forceVideoTakeover() {
         refreshDomVideoCandidates {
-            val candidates = getActiveResourceRegistry()?.listSorted()
-                ?.filter { it.type == CandidateType.DOM_VIDEO || it.type == CandidateType.DOM_BLOB_VIDEO }
-                ?: emptyList()
+            val candidates = resourceRegistry.listSorted()
+                .filter { it.type == CandidateType.DOM_VIDEO || it.type == CandidateType.DOM_BLOB_VIDEO }
 
             when {
-                candidates.isNotEmpty() && candidates.size == 1 -> {
+                candidates.size == 1 -> {
                     enterFullscreenForDomVideo(candidates.first())
                 }
                 candidates.size > 1 -> {
@@ -1082,7 +975,7 @@ class BrowserActivity : AppCompatActivity() {
             else if (it.contains("DASH")) dashCount++
         }
         
-        getActiveResourceRegistry()?.listSorted()?.forEach {
+        resourceRegistry.listSorted().forEach {
             when (it.type) {
                 CandidateType.DOM_VIDEO -> domCount++
                 CandidateType.DOM_BLOB_VIDEO -> blobCount++
@@ -1107,108 +1000,49 @@ class BrowserActivity : AppCompatActivity() {
             append("建议：优先使用 DOM 或 iframe 接管，媒体直链不作为入口。\n\n\n")
         }.toString()
 
-        val dialog = BottomSheetDialog(this)
-        val layout = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            background = androidx.core.content.ContextCompat.getDrawable(this@BrowserActivity, R.drawable.bg_miui_bottom_sheet)
-        }
-        
-        // Add Drag Handle
-        val handle = View(this).apply {
-            val lp = android.widget.LinearLayout.LayoutParams(dp(36), dp(4))
-            lp.gravity = android.view.Gravity.CENTER_HORIZONTAL
-            lp.bottomMargin = dp(16)
-            layoutParams = lp
-            background = androidx.core.content.ContextCompat.getDrawable(this@BrowserActivity, R.drawable.bg_miui_drag_handle)
-        }
-        layout.addView(handle)
-
-        val scrollView = android.widget.ScrollView(this).apply {
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 
-                0, 1f
-            )
-        }
-        
-        val tv = TextView(this).apply {
-            setTextIsSelectable(true)
-            this.text = summary + "完整 JSON 数据：\n" + text
-            textSize = 12f
-            setTextColor(android.graphics.Color.parseColor("#333333"))
-        }
-        scrollView.addView(tv)
-        layout.addView(scrollView)
-        
-        val btnCopy = TextView(this).apply {
-            this.text = "复制完整诊断 JSON"
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, dp(15), 0, dp(15))
-            textSize = 14f
-            setTextColor(android.graphics.Color.parseColor("#007AFF"))
-            background = androidx.core.content.ContextCompat.getDrawable(this@BrowserActivity, R.drawable.bg_bottom_sheet)
-            setOnClickListener {
-                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("诊断数据", text))
-                Toast.makeText(this@BrowserActivity, "已复制", Toast.LENGTH_SHORT).show()
+        BottomSheetDialog(this).apply {
+            val layout = android.widget.LinearLayout(this@BrowserActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(dp(20), dp(20), dp(20), dp(20))
             }
+            
+            val scrollView = android.widget.ScrollView(this@BrowserActivity).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 
+                    0, 1f
+                )
+            }
+            
+            val tv = TextView(this@BrowserActivity).apply {
+                setTextIsSelectable(true)
+                this.text = summary + "完整 JSON 数据：\n" + text
+                textSize = 12f
+                setTextColor(android.graphics.Color.parseColor("#333333"))
+            }
+            scrollView.addView(tv)
+            layout.addView(scrollView)
+            
+            val btnCopy = TextView(this@BrowserActivity).apply {
+                this.text = "复制完整诊断 JSON"
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(15), 0, dp(15))
+                textSize = 14f
+                setTextColor(android.graphics.Color.parseColor("#007AFF"))
+                background = androidx.core.content.ContextCompat.getDrawable(this@BrowserActivity, R.drawable.bg_bottom_sheet)
+                setOnClickListener {
+                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("诊断数据", text))
+                    Toast.makeText(this@BrowserActivity, "已复制", Toast.LENGTH_SHORT).show()
+                }
+            }
+            layout.addView(btnCopy)
+            
+            setContentView(layout)
+            show()
         }
-        layout.addView(btnCopy)
-        
-        dialog.setContentView(layout)
-        dialog.show()
     }
 
     @SuppressLint("SetTextI18n")
-    private fun clearAllTabs() {
-        tabs.toList().forEach { tab ->
-            webViewContainer.removeView(tab.webView)
-            tab.webView.stopLoading()
-            tab.webView.webChromeClient = null
-            tab.webView.webViewClient = android.webkit.WebViewClient()
-            tab.webView.clearHistory()
-            tab.webView.clearCache(true)
-            tab.webView.removeAllViews()
-            tab.webView.destroy()
-        }
-        tabs.clear()
-        activeTabIndex = -1
-        clearActivePlaybackState()
-        btnResourceHub.visibility = View.GONE
-    }
-
-    private fun clearAllWebDataForIncognito() {
-        android.webkit.CookieManager.getInstance().removeAllCookies(null)
-        android.webkit.CookieManager.getInstance().flush()
-        android.webkit.WebStorage.getInstance().deleteAllData()
-        runCatching {
-            WebView(this).apply {
-                clearCache(true)
-                clearHistory()
-                clearFormData()
-                destroy()
-            }
-        }
-    }
-
-    private fun enterIncognitoMode() {
-        browserSettings.isIncognitoMode = true
-        clearAllTabs()
-        clearAllWebDataForIncognito()
-        createNewTab("about:blank")
-        enterHomeMode(clearCurrentPage = false)
-        Toast.makeText(this, "已开启无痕模式", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun exitIncognitoMode() {
-        browserSettings.isIncognitoMode = false
-        clearAllTabs()
-        clearAllWebDataForIncognito()
-        createNewTab("about:blank")
-        enterHomeMode(clearCurrentPage = false)
-        Toast.makeText(this, "已退出无痕模式", Toast.LENGTH_SHORT).show()
-    }
-
     private fun showToolMenu() {
         val dialog = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.preview_toolbox, null)
@@ -1356,7 +1190,7 @@ class BrowserActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             val wv = createWebView()
-            val tab = TabInfo(wv, nextTabId++, "主页", "about:blank")
+            val tab = TabInfo(wv, "主页", "about:blank")
             tabs.add(tab)
             webViewContainer.addView(wv, android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT, 
@@ -1500,7 +1334,7 @@ class BrowserActivity : AppCompatActivity() {
     private fun updateResourceFabVisibility() {
         val mode = viewModel.uiMode.value
         val isFull = mode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM || mode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO
-        val shouldShow = !isFull && (getActiveResourceRegistry()?.hasCandidates() ?: false)
+        val shouldShow = !isFull && resourceRegistry.hasCandidates()
         val isCurrentlyVisible = btnResourceHub.visibility == View.VISIBLE
 
         if (shouldShow != isCurrentlyVisible) {
@@ -1534,7 +1368,7 @@ class BrowserActivity : AppCompatActivity() {
         val candidateListContainer = view.findViewById<android.widget.LinearLayout>(R.id.candidateListContainer)
         val candidateScrollView = view.findViewById<android.widget.ScrollView>(R.id.candidateScrollView)
 
-        val allCandidates = getActiveResourceRegistry()?.listSorted()?.sortedByDescending { uiScore(it) } ?: emptyList()
+        val allCandidates = resourceRegistry.listSorted().sortedByDescending { uiScore(it) }
 
         fun render() {
             val filtered = filterCandidates(allCandidates, activeCandidateFilter)
@@ -1876,8 +1710,8 @@ class BrowserActivity : AppCompatActivity() {
         tryEnterDomVideoById(videoId) { ok ->
             if (!ok) {
                 refreshDomVideoCandidates {
-                    val replacement = getActiveResourceRegistry()?.listSorted()
-                        ?.firstOrNull { it.type == CandidateType.DOM_VIDEO }
+                    val replacement = resourceRegistry.listSorted()
+                        .firstOrNull { it.type == CandidateType.DOM_VIDEO }
 
                     if (replacement?.videoId != null) {
                         tryEnterDomVideoById(replacement.videoId!!) { retryOk ->
@@ -1910,7 +1744,6 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun refreshDomVideoCandidates(done: () -> Unit) {
         val wv = getActiveWebView() ?: return done()
-        val tab = getTabForWebView(wv) ?: return done()
 
         wv.evaluateJavascript("JSON.stringify(NativeVideo.listVideos && NativeVideo.listVideos())") { raw ->
             val text = raw?.removePrefix("\"")
@@ -1918,8 +1751,8 @@ class BrowserActivity : AppCompatActivity() {
                 ?.replace("\\\"", "\"")
                 ?.replace("\\\\", "\\") ?: ""
 
-            tab.resourceRegistry.removeTypeForPage(CandidateType.DOM_VIDEO, wv.url)
-            tab.resourceRegistry.removeTypeForPage(CandidateType.DOM_BLOB_VIDEO, wv.url)
+            resourceRegistry.removeTypeForPage(CandidateType.DOM_VIDEO, wv.url)
+            resourceRegistry.removeTypeForPage(CandidateType.DOM_BLOB_VIDEO, wv.url)
 
             try {
                 val arr = org.json.JSONArray(text)
@@ -1933,7 +1766,7 @@ class BrowserActivity : AppCompatActivity() {
 
                     if (id.isNotBlank() && isPlayable) {
                         val type = if (isBlob) CandidateType.DOM_BLOB_VIDEO else CandidateType.DOM_VIDEO
-                        tab.resourceRegistry.upsert(
+                        resourceRegistry.upsert(
                             VideoCandidate(
                                 id = "dom:${wv.url}:$id",
                                 type = type,
@@ -1970,7 +1803,7 @@ class BrowserActivity : AppCompatActivity() {
 
         urlInput.setText(iframeSrc)
 
-        getActiveResourceRegistry()?.clearAll()
+        resourceRegistry.clearAll()
         updateResourceFabVisibility()
 
         getActiveWebView()?.loadUrl(iframeSrc)
@@ -2060,28 +1893,13 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     override fun onBackPressed() {
-        val currentMode = viewModel.uiMode.value
-        val wv = getActiveWebView()
-
-        if (currentMode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM || 
-            currentMode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
+        if (viewModel.uiMode.value == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM || 
+            viewModel.uiMode.value == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
             requestExitFullscreen()
         }
-        else if (currentMode == BrowserViewModel.UiMode.HOME) {
-            // 如果在主页模式，但 WebView 实际上加载了网页（只是被遮住了），则切回网页模式
-            if (wv != null && wv.url != null && wv.url != "about:blank") {
-                viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
-                urlInput.setText(wv.url)
-            } else {
-                super.onBackPressed()
-            }
-        }
-        else if (wv?.canGoBack() == true) {
-            wv.goBack()
-        }
-        else {
-            enterHomeMode(clearCurrentPage = false)
-        }
+        else if (getActiveWebView()?.canGoBack() == true) getActiveWebView()?.goBack()
+        else if (viewModel.uiMode.value != BrowserViewModel.UiMode.HOME) viewModel.setUiMode(BrowserViewModel.UiMode.HOME)
+        else super.onBackPressed()
     }
 
     inner class VideoBridge(private val wv: WebView) {
@@ -2113,7 +1931,7 @@ class BrowserActivity : AppCompatActivity() {
                 tab.activeVideoId = videoId
                 tab.videoBindReason = reason
 
-                tab.resourceRegistry.upsert(
+                resourceRegistry.upsert(
                     VideoCandidate(
                         id = "dom:${wv.url}:$videoId",
                         type = CandidateType.DOM_VIDEO,
@@ -2197,8 +2015,7 @@ class BrowserActivity : AppCompatActivity() {
         @JavascriptInterface fun onIframeDetected(src: String) {
             runOnUiThread {
                 if (src.isBlank()) return@runOnUiThread
-                val tab = tabs.find { it.webView == wv } ?: return@runOnUiThread
-                tab.resourceRegistry.upsert(
+                resourceRegistry.upsert(
                     VideoCandidate(
                         id = "iframe:$src",
                         type = CandidateType.IFRAME_PLAYER,
@@ -2246,7 +2063,6 @@ class BrowserActivity : AppCompatActivity() {
     private fun showAddBookmarkDialog() {
         val dialog = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.layout_bottom_sheet_add_bookmark, null)
-        view.background = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_miui_bottom_sheet)
         
         val editTitle = view.findViewById<android.widget.EditText>(R.id.editBookmarkTitle)
         val editUrl = view.findViewById<android.widget.EditText>(R.id.editBookmarkUrl)

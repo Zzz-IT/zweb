@@ -42,3 +42,10 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2'
     implementation 'androidx.activity:activity-ktx:1.8.0'
 }
+
+// 禁用所有单元测试和安卓测试相关任务，防止 kapt 编译空测试目录时在 Windows 下报错
+tasks.configureEach { task ->
+    if (task.name.contains("AndroidTest") || task.name.contains("UnitTest")) {
+        task.enabled = false
+    }
+}

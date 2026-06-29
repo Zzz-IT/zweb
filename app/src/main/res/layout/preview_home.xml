@@ -11,13 +11,17 @@
     android:paddingTop="160dp">
 
     <TextView
+        android:id="@+id/txtHomeLogo"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="WebVideo"
+        android:text="Zweb"
         android:textColor="#1A1A1A"
         android:textSize="48sp"
         android:letterSpacing="-0.02"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?android:attr/selectableItemBackgroundBorderless" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -34,7 +38,7 @@
         android:background="@drawable/bg_rounded_card"
         android:gravity="center_vertical"
         android:paddingLeft="20dp"
-        android:paddingRight="8dp">
+        android:paddingRight="6dp">
 
         <EditText
             android:id="@+id/homeSearchInput"
@@ -49,9 +53,9 @@
 
         <ImageButton
             android:id="@+id/btnHomeGo"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_ripple_rounded"
             android:src="@drawable/ic_go"
             android:contentDescription="搜索" />
     </LinearLayout>

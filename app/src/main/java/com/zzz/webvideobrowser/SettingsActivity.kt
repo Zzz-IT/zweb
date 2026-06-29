@@ -15,6 +15,14 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Miuix style status bar
+        window.statusBarColor = android.graphics.Color.WHITE
+        window.navigationBarColor = android.graphics.Color.WHITE
+        val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+        controller.isAppearanceLightStatusBars = true
+        controller.isAppearanceLightNavigationBars = true
+
         setContentView(R.layout.activity_settings)
 
         settings = BrowserSettings(this)

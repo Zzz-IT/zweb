@@ -1,25 +1,23 @@
 package com.zzz.webvideobrowser
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
-import android.widget.Toast
 
 class BrowserUrlRouter(
     private val context: Context
 ) {
     fun shouldOverride(view: WebView, request: WebResourceRequest): Boolean {
-        return handleUrl(view, request.url.toString(), request.isForMainFrame)
+        return handleUrl(view, request.url.toString())
     }
 
     fun shouldOverride(view: WebView, rawUrl: String): Boolean {
-        return handleUrl(view, rawUrl, true)
+        return handleUrl(view, rawUrl)
     }
 
-    private fun handleUrl(view: WebView, rawUrl: String, isMainFrame: Boolean): Boolean {
+    private fun handleUrl(view: WebView, rawUrl: String): Boolean {
         val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return true
         val scheme = uri.scheme?.lowercase()
 
@@ -43,10 +41,10 @@ class BrowserUrlRouter(
 
             else -> {
                 // 例如 baiduhaokan://、snssdk://、bilibili://、weixin://
-                // 不让 WebView 加载，否则就是 ERR_UNKNOWN_URL_SCHEME。
-                if (isMainFrame) {
-                    Toast.makeText(context, "已拦截 App 跳转：$scheme://", Toast.LENGTH_SHORT).show()
-                }
+                // 不再提示拦截，直接尝试向系统发出请求。
+                // 如果系统有对应的 App 且设置了询问，系统会自然询问；
+                // 如果没有 App 响应，则静默失败，不影响用户。
+                openExternal(rawUrl)
                 return true
             }
         }
@@ -76,12 +74,11 @@ class BrowserUrlRouter(
         return try {
             intent.addCategory(Intent.CATEGORY_BROWSABLE)
             intent.component = null
+            // 移除额外标志，让系统默认行为接管（如有多个 App 系统会弹出选择器）
             context.startActivity(intent)
             true
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(context, "没有可打开此链接的应用", Toast.LENGTH_SHORT).show()
-            true
         } catch (_: Exception) {
+            // 静默失败，不干扰用户
             true
         }
     }

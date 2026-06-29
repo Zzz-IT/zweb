@@ -2,11 +2,13 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?attr/selectableItemBackground"
+    android:layout_marginHorizontal="16dp"
+    android:layout_marginVertical="4dp"
+    android:background="@drawable/bg_capsule"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingHorizontal="16dp"
-    android:paddingVertical="12dp">
+    android:paddingVertical="10dp">
 
     <TextView
         android:id="@+id/txtRuleUrl"
@@ -22,7 +24,7 @@
         android:id="@+id/btnRefreshRule"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
         android:src="@drawable/ic_refresh"
         android:contentDescription="刷新"
         android:scaleType="centerInside"
@@ -33,7 +35,7 @@
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:layout_marginStart="8dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
         android:src="@drawable/ic_trash"
         android:contentDescription="删除"
         android:scaleType="centerInside"

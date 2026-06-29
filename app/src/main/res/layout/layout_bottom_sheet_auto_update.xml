@@ -26,43 +26,45 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/bg_search_bar"
-        android:orientation="vertical"
-        android:padding="8dp">
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="4dp">
 
         <TextView
             android:id="@+id/btnOptionNone"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
             android:text="不自动"
             android:gravity="center"
-            android:textSize="16sp"
+            android:textSize="14sp"
             android:textColor="#333333"
-            android:background="?android:attr/selectableItemBackground" />
-
-        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1A000000" android:layout_marginHorizontal="16dp"/>
+            android:layout_margin="4dp"
+            android:background="@drawable/bg_miui_icon_bg" />
 
         <TextView
             android:id="@+id/btnOptionDaily"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
             android:text="每天"
             android:gravity="center"
-            android:textSize="16sp"
+            android:textSize="14sp"
             android:textColor="#333333"
-            android:background="?android:attr/selectableItemBackground" />
-            
-        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1A000000" android:layout_marginHorizontal="16dp"/>
+            android:layout_margin="4dp"
+            android:background="@drawable/bg_miui_icon_bg" />
 
         <TextView
             android:id="@+id/btnOptionWeekly"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
             android:text="每周"
             android:gravity="center"
-            android:textSize="16sp"
+            android:textSize="14sp"
             android:textColor="#333333"
-            android:background="?android:attr/selectableItemBackground" />
+            android:layout_margin="4dp"
+            android:background="@drawable/bg_miui_icon_bg" />
     </LinearLayout>
     
     <TextView

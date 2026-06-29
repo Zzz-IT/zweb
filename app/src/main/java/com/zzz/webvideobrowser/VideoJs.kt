@@ -612,6 +612,7 @@ object VideoJs {
 
   const style = document.createElement("style");
   style.innerHTML = `
+    * { -webkit-tap-highlight-color: transparent !important; }
     video::-webkit-media-controls { display: none !important; opacity: 0 !important; pointer-events: none !important; }
     video::-webkit-media-controls-enclosure { display: none !important; opacity: 0 !important; pointer-events: none !important; }
   `;
