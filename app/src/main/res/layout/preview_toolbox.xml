@@ -39,11 +39,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
@@ -68,11 +68,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
@@ -97,11 +97,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
@@ -126,11 +126,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
@@ -163,11 +163,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
@@ -192,11 +192,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
@@ -221,11 +221,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
@@ -250,11 +250,11 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="?android:attr/selectableItemBackgroundBorderless">
+            android:background="@android:color/transparent">
             <FrameLayout
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:background="@drawable/bg_miui_icon_bg">
+                android:background="@drawable/bg_miui_icon_bg_press">
                 <ImageView
                     android:id="@+id/img_incognito"
                     android:layout_width="28dp"

@@ -3,13 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FFFFFF"
+    android:background="#F5F5F7"
     android:fitsSystemWindows="true">
 
     <!-- Top Bar -->
     <RelativeLayout
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize">
+        android:layout_height="?attr/actionBarSize"
+        android:background="#F5F5F7">
 
         <ImageButton
             android:id="@+id/btnRecordsBack"
@@ -18,7 +19,7 @@
             android:layout_alignParentStart="true"
             android:layout_centerVertical="true"
             android:layout_marginStart="8dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:src="@drawable/ic_arrow_back"
             android:scaleType="centerInside" />
 
@@ -58,7 +59,7 @@
             android:text="清除"
             android:textSize="16sp"
             android:textColor="#FF3B30"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:paddingHorizontal="16dp" />
     </RelativeLayout>
 
@@ -69,6 +70,7 @@
         android:layout_marginTop="8dp"
         android:background="@android:color/transparent"
         android:clipToPadding="false"
+        android:paddingHorizontal="16dp"
         android:paddingBottom="16dp"
         android:overScrollMode="never" />
 </LinearLayout>

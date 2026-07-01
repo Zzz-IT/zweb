@@ -127,6 +127,7 @@ object VideoJs {
     if (!video) return false;
     activeVideo = video;
     lastPlayVideo = video;
+    pendingGestureVideo = null;
     bindVideo(video);
 
     const id = getVideoId(video);
@@ -389,6 +390,16 @@ object VideoJs {
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
 
+    // 隐藏页面所有直接子元素（保留 video 所在容器不被破坏）
+    var el = document.body.firstElementChild;
+    while (el) {
+      if (!el.__zweb_theater_saved_display__) {
+        el.__zweb_theater_saved_display__ = el.style.display || "";
+      }
+      el.style.display = "none";
+      el = el.nextElementSibling;
+    }
+
     theaterRoot = document.createElement("div");
     theaterRoot.id = "__zweb_theater_root__";
     theaterRoot.style.position = "fixed";
@@ -430,11 +441,27 @@ object VideoJs {
   }
 
   function exitTheater() {
+    // 无论如何都要恢复页面子元素的 display
+    try {
+      var el = document.body.firstElementChild;
+      while (el) {
+        if (el.__zweb_theater_saved_display__ !== undefined) {
+          el.style.display = el.__zweb_theater_saved_display__;
+          delete el.__zweb_theater_saved_display__;
+        }
+        el = el.nextElementSibling;
+      }
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    } catch (e) {}
+
     if (!theaterVideo || !theaterSnapshot) {
       if (theaterRoot && theaterRoot.parentNode) {
         theaterRoot.parentNode.removeChild(theaterRoot);
       }
       theaterRoot = null;
+      theaterVideo = null;
+      theaterSnapshot = null;
       return false;
     }
 
@@ -467,9 +494,6 @@ object VideoJs {
       } else {
         video.removeAttribute("controls");
       }
-
-      document.body.style.overflow = snap.bodyOverflow || "";
-      document.documentElement.style.overflow = snap.htmlOverflow || "";
     } catch (e) {}
 
     if (theaterRoot && theaterRoot.parentNode) {

@@ -36,6 +36,19 @@ android {
     }
 }
 
+kapt {
+    javacOptions {
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED")
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED")
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED")
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED")
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED")
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED")
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED")
+        option("-J--add-opens=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED")
+    }
+}
+
 dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'com.google.android.material:material:1.10.0'

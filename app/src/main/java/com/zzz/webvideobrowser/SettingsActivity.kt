@@ -17,8 +17,8 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         
         // Miuix style status bar
-        window.statusBarColor = android.graphics.Color.WHITE
-        window.navigationBarColor = android.graphics.Color.WHITE
+        window.statusBarColor = android.graphics.Color.parseColor("#F5F5F7")
+        window.navigationBarColor = android.graphics.Color.parseColor("#F5F5F7")
         val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = true
         controller.isAppearanceLightNavigationBars = true
@@ -46,6 +46,10 @@ class SettingsActivity : AppCompatActivity() {
         val swDnt = findViewById<MiuiSwitch>(R.id.swDnt)
         swDnt.checked = settings.enableDnt
         swDnt.setOnCheckedChangeListener { isChecked -> settings.enableDnt = isChecked }
+
+        val swDisableNativeFullscreen = findViewById<MiuiSwitch>(R.id.swDisableNativeFullscreen)
+        swDisableNativeFullscreen.checked = settings.disableNativeFullscreen
+        swDisableNativeFullscreen.setOnCheckedChangeListener { isChecked -> settings.disableNativeFullscreen = isChecked }
 
         findViewById<android.view.View>(R.id.btnAdBlockSettings).setOnClickListener {
             startActivity(android.content.Intent(this, AdBlockSettingsActivity::class.java))

@@ -35,8 +35,8 @@ class RecordsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_records)
 
         // Miuix style status bar
-        window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = Color.WHITE
+        window.statusBarColor = Color.parseColor("#F5F5F7")
+        window.navigationBarColor = Color.parseColor("#F5F5F7")
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = true

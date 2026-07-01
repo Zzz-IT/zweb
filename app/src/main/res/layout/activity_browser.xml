@@ -14,6 +14,15 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
+    <!-- 顶部状态栏点击热区：点击回到顶部 (Miuix 风格) -->
+    <View
+        android:id="@+id/statusBarClickArea"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:background="@android:color/transparent"
+        android:clickable="false"
+        android:focusable="false" />
+
 
     <!-- 首页层 -->
     <include layout="@layout/preview_home" />
@@ -32,9 +41,9 @@
     <com.zzz.webvideobrowser.GestureInterceptLayout
         android:id="@+id/bottomBarGestureHotArea"
         android:layout_width="match_parent"
-        android:layout_height="116dp"
+        android:layout_height="140dp"
         android:layout_gravity="bottom"
-        android:background="@android:color/transparent"
+        android:background="#01000000"
         android:clickable="true"
         android:focusable="false"
         android:importantForAccessibility="no"

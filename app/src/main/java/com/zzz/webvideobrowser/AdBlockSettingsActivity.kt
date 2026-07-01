@@ -28,8 +28,8 @@ class AdBlockSettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         // Miuix style status bar
-        window.statusBarColor = android.graphics.Color.WHITE
-        window.navigationBarColor = android.graphics.Color.WHITE
+        window.statusBarColor = android.graphics.Color.parseColor("#F5F5F7")
+        window.navigationBarColor = android.graphics.Color.parseColor("#F5F5F7")
         val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = true
         controller.isAppearanceLightNavigationBars = true

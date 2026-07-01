@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginHorizontal="16dp"
+    android:minHeight="64dp"
     android:layout_marginVertical="4dp"
     android:background="@drawable/bg_capsule"
     android:gravity="center_vertical"
@@ -24,20 +25,20 @@
         android:id="@+id/btnRefreshRule"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:background="@android:color/transparent"
         android:src="@drawable/ic_refresh"
         android:contentDescription="刷新"
         android:scaleType="centerInside"
-        android:tint="#007AFF" />
+        app:tint="#007AFF" />
 
     <ImageButton
         android:id="@+id/btnDeleteRule"
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:layout_marginStart="8dp"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:background="@android:color/transparent"
         android:src="@drawable/ic_trash"
         android:contentDescription="删除"
         android:scaleType="centerInside"
-        android:tint="#FF3B30" />
+        app:tint="#FF3B30" />
 </LinearLayout>

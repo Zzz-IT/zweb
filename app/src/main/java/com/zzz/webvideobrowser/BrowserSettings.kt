@@ -21,4 +21,8 @@ class BrowserSettings(context: Context) {
     var isIncognitoMode: Boolean
         get() = prefs.getBoolean("incognito_mode", false)
         set(value) = prefs.edit().putBoolean("incognito_mode", value).apply()
+
+    var disableNativeFullscreen: Boolean
+        get() = prefs.getBoolean("disable_native_fullscreen", false)
+        set(value) = prefs.edit().putBoolean("disable_native_fullscreen", value).apply()
 }

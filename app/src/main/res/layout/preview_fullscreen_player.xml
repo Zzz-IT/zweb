@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/fullscreenControls"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -23,13 +24,93 @@
         android:textStyle="bold"
         android:visibility="gone" />
 
+    <!-- 亮度调节指示器 (左侧) -->
+    <LinearLayout
+        android:id="@+id/brightnessIndicator"
+        android:layout_width="48dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|left"
+        android:layout_marginLeft="32dp"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="@drawable/bg_seek_overlay"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/imgBrightness"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_brightness"
+            app:tint="#FFFFFF" />
+
+        <ProgressBar
+            android:id="@+id/progressBrightness"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="3dp"
+            android:layout_height="120dp"
+            android:layout_marginTop="8dp"
+            android:progressDrawable="@drawable/progress_vertical"
+            android:max="100" />
+
+        <TextView
+            android:id="@+id/txtBrightnessValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:text="50%" />
+    </LinearLayout>
+
+    <!-- 音量调节指示器 (右侧) -->
+    <LinearLayout
+        android:id="@+id/volumeIndicator"
+        android:layout_width="48dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|right"
+        android:layout_marginRight="32dp"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="@drawable/bg_seek_overlay"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/imgVolume"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_volume"
+            app:tint="#FFFFFF" />
+
+        <ProgressBar
+            android:id="@+id/progressVolume"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="3dp"
+            android:layout_height="120dp"
+            android:layout_marginTop="8dp"
+            android:progressDrawable="@drawable/progress_vertical"
+            android:max="100" />
+
+        <TextView
+            android:id="@+id/txtVolumeValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:text="50%" />
+    </LinearLayout>
+
     <ImageButton
         android:id="@+id/btnExitFull"
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_gravity="top|left"
         android:layout_margin="16dp"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:background="@android:color/transparent"
         android:clickable="true"
         android:focusable="true"
         android:src="@drawable/ic_close"
@@ -54,7 +135,7 @@
             android:id="@+id/btnFullPlayPause"
             android:layout_width="56dp"
             android:layout_height="56dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:src="@drawable/ic_play"
             android:scaleType="centerInside" />
 
@@ -85,7 +166,7 @@
             android:id="@+id/btnOrientation"
             android:layout_width="40dp"
             android:layout_height="45dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:scaleType="centerInside"
             android:src="@drawable/ic_screen_rotation" />
     </LinearLayout>

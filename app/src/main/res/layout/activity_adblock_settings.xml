@@ -17,7 +17,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_ripple_rounded"
+            android:background="@android:color/transparent"
             android:src="@drawable/ic_arrow_back"
             android:scaleType="centerInside" />
 
@@ -36,7 +36,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_marginEnd="8dp"
-            android:background="@drawable/bg_ripple_rounded"
+            android:background="@android:color/transparent"
             android:src="@drawable/ic_add"
             android:scaleType="centerInside" />
     </LinearLayout>
@@ -75,7 +75,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="64dp"
                     android:gravity="center_vertical"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:background="@android:color/transparent"
                     android:orientation="horizontal">
 
                     <TextView
@@ -118,7 +118,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:nestedScrollingEnabled="false"
-                    android:paddingBottom="8dp" />
+                    android:paddingBottom="16dp"
+                    android:clipToPadding="false" />
 
             </LinearLayout>
         </LinearLayout>
