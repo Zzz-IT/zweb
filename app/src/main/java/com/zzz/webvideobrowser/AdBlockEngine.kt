@@ -7,12 +7,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.CopyOnWriteArraySet
 
-class AdBlockEngine(private val context: Context) {
-    private val blockedDomains = mutableSetOf<String>()
-    private val exceptionDomains = mutableSetOf<String>()
+class AdBlockEngine private constructor(private val context: Context) {
+
+    private val blockedDomains = CopyOnWriteArraySet<String>()
+    private val exceptionDomains = CopyOnWriteArraySet<String>()
     private val ruleFile = File(context.filesDir, "adblock_rules.txt")
-    
+
+    @Volatile
     var ruleCount: Int = 0
         private set
 
@@ -22,31 +25,35 @@ class AdBlockEngine(private val context: Context) {
 
     private fun loadRulesFromDisk() {
         if (!ruleFile.exists()) return
-        
-        blockedDomains.clear()
-        exceptionDomains.clear()
-        
+
+        val newBlocked = mutableSetOf<String>()
+        val newExceptions = mutableSetOf<String>()
+
         try {
             ruleFile.useLines { lines ->
                 lines.forEach { line ->
                     val trimmed = line.trim()
                     if (trimmed.isEmpty() || trimmed.startsWith("!")) return@forEach
-                    
+
                     if (trimmed.startsWith("@@||") && trimmed.endsWith("^")) {
-                        exceptionDomains.add(trimmed.substring(4, trimmed.length - 1))
+                        newExceptions.add(trimmed.substring(4, trimmed.length - 1))
                     } else if (trimmed.startsWith("||") && trimmed.endsWith("^")) {
-                        blockedDomains.add(trimmed.substring(2, trimmed.length - 1))
+                        newBlocked.add(trimmed.substring(2, trimmed.length - 1))
                     } else if (trimmed.startsWith("||")) {
-                        // Some basic matching for domains without trailing ^
                         val domain = trimmed.substring(2).substringBefore("/")
-                        if (domain.isNotBlank()) blockedDomains.add(domain)
+                        if (domain.isNotBlank()) newBlocked.add(domain)
                     }
                 }
             }
-            ruleCount = blockedDomains.size
         } catch (e: Exception) {
             e.printStackTrace()
         }
+
+        blockedDomains.clear()
+        blockedDomains.addAll(newBlocked)
+        exceptionDomains.clear()
+        exceptionDomains.addAll(newExceptions)
+        ruleCount = blockedDomains.size
     }
 
     suspend fun updateRules(urlStr: String): Boolean = withContext(Dispatchers.IO) {
@@ -55,7 +62,7 @@ class AdBlockEngine(private val context: Context) {
             val connection = url.openConnection() as HttpURLConnection
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
-            
+
             if (connection.responseCode == 200) {
                 connection.inputStream.use { input ->
                     ruleFile.outputStream().use { output ->
@@ -75,24 +82,33 @@ class AdBlockEngine(private val context: Context) {
 
     fun shouldBlock(url: String): Boolean {
         if (ruleCount == 0 || blockedDomains.isEmpty()) return false
-        
+
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
         val host = uri.host ?: return false
-        
-        // Exact match exception
+
         if (exceptionDomains.contains(host)) return false
-        
-        // Subdomain matching
+
         var currentDomain = host
         while (currentDomain.isNotEmpty()) {
             if (exceptionDomains.contains(currentDomain)) return false
             if (blockedDomains.contains(currentDomain)) return true
-            
+
             val dotIndex = currentDomain.indexOf('.')
             if (dotIndex == -1) break
             currentDomain = currentDomain.substring(dotIndex + 1)
         }
-        
+
         return false
+    }
+
+    companion object {
+        @Volatile
+        private var INSTANCE: AdBlockEngine? = null
+
+        fun getInstance(context: Context): AdBlockEngine {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: AdBlockEngine(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 }

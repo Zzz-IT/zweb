@@ -55,8 +55,9 @@
             android:id="@+id/btnHomeGo"
             android:layout_width="52dp"
             android:layout_height="52dp"
-            android:background="@android:color/transparent"
+            android:background="@drawable/bg_press_rounded"
             android:src="@drawable/ic_go"
+            android:scaleType="centerInside"
             android:contentDescription="搜索" />
     </LinearLayout>
 

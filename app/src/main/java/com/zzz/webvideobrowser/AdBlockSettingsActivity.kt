@@ -36,7 +36,7 @@ class AdBlockSettingsActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_adblock_settings)
 
-        engine = AdBlockEngine(this)
+        engine = AdBlockEngine.getInstance(this)
 
         findViewById<View>(R.id.btnSettingsBack).setOnClickListener {
             finish()

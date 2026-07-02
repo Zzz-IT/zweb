@@ -8,14 +8,29 @@ import androidx.recyclerview.widget.RecyclerView
 import com.zzz.webvideobrowser.db.BookmarkRecord
 import com.zzz.webvideobrowser.db.HistoryRecord
 
+sealed class RecordItem {
+    abstract val title: String
+    abstract val url: String
+
+    data class History(val record: HistoryRecord) : RecordItem() {
+        override val title get() = record.title
+        override val url get() = record.url
+    }
+
+    data class Bookmark(val record: BookmarkRecord) : RecordItem() {
+        override val title get() = record.title
+        override val url get() = record.url
+    }
+}
+
 class RecordsAdapter(
     private val onItemClick: (String) -> Unit,
-    private val onItemLongClick: ((Any) -> Unit)? = null
+    private val onItemLongClick: ((RecordItem) -> Unit)? = null
 ) : RecyclerView.Adapter<RecordsAdapter.RecordViewHolder>() {
 
-    private var items: List<Any> = emptyList()
+    private var items: List<RecordItem> = emptyList()
 
-    fun submitList(newItems: List<Any>) {
+    fun submitList(newItems: List<RecordItem>) {
         items = newItems
         notifyDataSetChanged()
     }
@@ -26,8 +41,7 @@ class RecordsAdapter(
     }
 
     override fun onBindViewHolder(holder: RecordViewHolder, position: Int) {
-        val item = items[position]
-        holder.bind(item)
+        holder.bind(items[position])
     }
 
     override fun getItemCount(): Int = items.size
@@ -36,26 +50,13 @@ class RecordsAdapter(
         private val txtTitle: TextView = itemView.findViewById(R.id.txtRecordTitle)
         private val txtUrl: TextView = itemView.findViewById(R.id.txtRecordUrl)
 
-        fun bind(item: Any) {
-            when (item) {
-                is HistoryRecord -> {
-                    txtTitle.text = item.title.ifEmpty { item.url }
-                    txtUrl.text = item.url
-                    itemView.setOnClickListener { onItemClick(item.url) }
-                    itemView.setOnLongClickListener {
-                        onItemLongClick?.invoke(item)
-                        true
-                    }
-                }
-                is BookmarkRecord -> {
-                    txtTitle.text = item.title.ifEmpty { item.url }
-                    txtUrl.text = item.url
-                    itemView.setOnClickListener { onItemClick(item.url) }
-                    itemView.setOnLongClickListener {
-                        onItemLongClick?.invoke(item)
-                        true
-                    }
-                }
+        fun bind(item: RecordItem) {
+            txtTitle.text = item.title.ifEmpty { item.url }
+            txtUrl.text = item.url
+            itemView.setOnClickListener { onItemClick(item.url) }
+            itemView.setOnLongClickListener {
+                onItemLongClick?.invoke(item)
+                true
             }
         }
     }

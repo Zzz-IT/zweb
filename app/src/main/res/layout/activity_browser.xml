@@ -14,7 +14,7 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <!-- 顶部状态栏点击热区：点击回到顶部 (Miuix 风格) -->
+    <!-- 顶部状态栏点击热区 -->
     <View
         android:id="@+id/statusBarClickArea"
         android:layout_width="match_parent"
@@ -23,40 +23,46 @@
         android:clickable="false"
         android:focusable="false" />
 
-
     <!-- 首页层 -->
     <include layout="@layout/preview_home" />
 
-    <!-- 底栏拖动时的同色背景延展层，必须放在 bottomBar 后面、WebView 前面 -->
-    <View
-        android:id="@+id/bottomBarDragUnderlay"
-        android:layout_width="match_parent"
-        android:layout_height="72dp"
-        android:layout_gravity="bottom"
-        android:background="#F2F2F7"
-        android:clickable="false"
-        android:focusable="false" />
-
-    <!-- 底栏上方扩展手势热区，不改变底栏视觉高度 -->
+    <!-- 底部导航栏容器：修正布局方式，解决进入App时的空白及横滑背景露出问题 -->
     <com.zzz.webvideobrowser.GestureInterceptLayout
         android:id="@+id/bottomBarGestureHotArea"
         android:layout_width="match_parent"
-        android:layout_height="140dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#01000000"
-        android:clickable="true"
-        android:focusable="false"
-        android:importantForAccessibility="no"
         android:clipChildren="false"
-        android:clipToPadding="false" />
+        android:clipToPadding="false"
+        android:clickable="true"
+        android:focusable="false">
 
-    <!-- 底部导航栏 -->
-    <include
-        layout="@layout/preview_bottom_bar"
-        android:layout_width="match_parent"
-        android:layout_height="72dp"
-        android:layout_gravity="bottom" />
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="140dp"
+            android:layout_gravity="bottom"
+            android:clipChildren="false"
+            android:clipToPadding="false">
 
+            <!-- 底栏背景延展层：设为超宽以解决横滑露出背景问题 -->
+            <View
+                android:id="@+id/bottomBarDragUnderlay"
+                android:layout_width="1000dp"
+                android:layout_height="72dp"
+                android:layout_gravity="bottom|center_horizontal"
+                android:background="#F2F2F7"
+                android:clickable="false"
+                android:focusable="false" />
+
+            <!-- 底部导航栏 -->
+            <include
+                layout="@layout/preview_bottom_bar"
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:layout_gravity="bottom" />
+        </FrameLayout>
+
+    </com.zzz.webvideobrowser.GestureInterceptLayout>
 
     <!-- 资源控制悬浮按钮 -->
     <ImageButton
@@ -73,7 +79,6 @@
         android:visibility="gone"
         android:contentDescription="可控视频" />
 
-
     <!-- 全屏容器 (最顶层) -->
     <FrameLayout
         android:id="@+id/fullscreenContainer"
@@ -82,7 +87,7 @@
         android:background="#000000"
         android:visibility="gone" />
 
-    <!-- 全屏手势层 (拦截全屏区域触摸) -->
+    <!-- 全屏手势层 -->
     <View
         android:id="@+id/fullscreenGestureLayer"
         android:layout_width="match_parent"

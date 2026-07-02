@@ -1,116 +1,105 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/bottomBar"
     android:layout_width="match_parent"
     android:layout_height="72dp"
     android:clipChildren="false"
-    android:clipToPadding="false">
+    android:clipToPadding="false"
+    android:background="#F2F2F7">
 
-    <com.zzz.webvideobrowser.GestureInterceptLayout
-        android:id="@+id/bottomBarGestureWrapper"
+    <LinearLayout
+        android:id="@+id/bottomBarContent"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:clipChildren="false"
-        android:clipToPadding="false">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="8dp">
 
-        <LinearLayout
-            android:id="@+id/bottomBarContent"
-            android:layout_width="match_parent"
-            android:layout_height="72dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingLeft="8dp"
-            android:paddingRight="8dp">
+        <FrameLayout
+            android:id="@+id/addressContainerFrame"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:foreground="@drawable/bg_search_bar_foreground">
 
-            <FrameLayout
-                android:id="@+id/addressContainerFrame"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="8dp"
-                android:foreground="@drawable/bg_search_bar_foreground">
+            <LinearLayout
+                android:id="@+id/addressTouchArea"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_search_bar"
+                android:paddingLeft="16dp"
+                android:paddingRight="12dp">
 
-                <LinearLayout
-                    android:id="@+id/addressTouchArea"
-                    android:layout_width="match_parent"
+                <EditText
+                    android:id="@+id/urlInput"
+                    android:layout_width="0dp"
                     android:layout_height="match_parent"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:background="@drawable/bg_search_bar"
-                    android:paddingLeft="16dp"
-                    android:paddingRight="12dp">
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:hint="搜索或输入网址"
+                    android:textColorHint="#999999"
+                    android:singleLine="true"
+                    android:textSize="15sp"
+                    android:imeOptions="actionGo"
+                    android:inputType="textUri" />
+            </LinearLayout>
+        </FrameLayout>
 
-                    <EditText
-                        android:id="@+id/urlInput"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1"
-                        android:background="@android:color/transparent"
-                        android:hint="搜索或输入网址"
-                        android:textColorHint="#999999"
-                        android:singleLine="true"
-                        android:textSize="15sp" />
-                </LinearLayout>
+        <ImageButton
+            android:id="@+id/btnGo"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_press_rounded"
+            android:src="@drawable/ic_go"
+            android:scaleType="centerInside" />
 
+        <ImageButton
+            android:id="@+id/btnHome"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_press_rounded"
+            android:src="@drawable/ic_home"
+            android:scaleType="centerInside" />
 
+        <ImageButton
+            android:id="@+id/btnTabs"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_press_rounded"
+            android:src="@drawable/ic_tabs"
+            android:scaleType="centerInside" />
 
-            </FrameLayout>
+        <ImageButton
+            android:id="@+id/btnTool"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_press_rounded"
+            android:src="@drawable/ic_tool"
+            android:scaleType="centerInside" />
+    </LinearLayout>
 
-            <ImageButton
-                android:id="@+id/btnGo"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:background="@drawable/bg_press_rounded"
-                android:src="@drawable/ic_go"
-                android:scaleType="centerInside" />
+    <TextView
+        android:id="@+id/bottomGestureHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginBottom="80dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:background="@drawable/bg_seek_overlay"
+        android:visibility="gone" />
 
-            <ImageButton
-                android:id="@+id/btnHome"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:background="@drawable/bg_press_rounded"
-                android:src="@drawable/ic_home"
-                android:scaleType="centerInside" />
-
-            <ImageButton
-                android:id="@+id/btnTabs"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:background="@drawable/bg_press_rounded"
-                android:src="@drawable/ic_tabs"
-                android:scaleType="centerInside" />
-
-            <ImageButton
-                android:id="@+id/btnTool"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:background="@drawable/bg_press_rounded"
-                android:src="@drawable/ic_tool"
-                android:scaleType="centerInside" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/bottomGestureHint"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:background="@drawable/bg_seek_overlay"
-            android:visibility="gone" />
-
-    </com.zzz.webvideobrowser.GestureInterceptLayout>
-
-    <!-- 覆盖在底栏顶部，不参与底栏高度测量 -->
     <ProgressBar
         android:id="@+id/progressBar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="2dp"
+        android:layout_height="2.5dp"
         android:layout_gravity="top"
         android:max="100"
         android:progressTint="#007AFF"

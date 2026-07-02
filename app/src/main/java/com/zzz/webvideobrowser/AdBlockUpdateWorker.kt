@@ -15,7 +15,7 @@ class AdBlockUpdateWorker(
 
         if (urls.isEmpty()) return Result.success()
 
-        val engine = AdBlockEngine(applicationContext)
+        val engine = AdBlockEngine.getInstance(applicationContext)
         var successCount = 0
 
         urls.forEach { url ->

@@ -13,9 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.zzz.webvideobrowser.db.BookmarkRecord
 import com.zzz.webvideobrowser.db.BrowserDatabase
-import com.zzz.webvideobrowser.db.HistoryRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -106,10 +104,10 @@ class RecordsActivity : AppCompatActivity() {
 
     private fun loadData() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val data = if (isShowingHistory) {
-                db.browserDao().getRecentHistory(500)
+            val data: List<RecordItem> = if (isShowingHistory) {
+                db.browserDao().getRecentHistory(500).map { RecordItem.History(it) }
             } else {
-                db.browserDao().getAllBookmarks()
+                db.browserDao().getAllBookmarks().map { RecordItem.Bookmark(it) }
             }
             withContext(Dispatchers.Main) {
                 adapter.submitList(data)
@@ -117,31 +115,25 @@ class RecordsActivity : AppCompatActivity() {
         }
     }
 
-    private fun showDeleteConfirmDialog(item: Any) {
+    private fun showDeleteConfirmDialog(item: RecordItem) {
         val dialog = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.layout_bottom_sheet_delete_rule, null)
         val txtRuleUrl = view.findViewById<TextView>(R.id.txtRuleUrl)
-        
-        val (titleStr, urlStr) = when (item) {
-            is HistoryRecord -> Pair(item.title, item.url)
-            is BookmarkRecord -> Pair(item.title, item.url)
-            else -> Pair("", "")
-        }
-        txtRuleUrl.text = "$titleStr\n$urlStr"
-        
+
+        txtRuleUrl.text = "${item.title}\n${item.url}"
+
         view.findViewById<View>(R.id.btnCancel).setOnClickListener { dialog.dismiss() }
         view.findViewById<View>(R.id.btnConfirm).setOnClickListener {
             lifecycleScope.launch(Dispatchers.IO) {
-                if (item is HistoryRecord) {
-                    db.browserDao().deleteHistory(item)
-                } else if (item is BookmarkRecord) {
-                    db.browserDao().deleteBookmark(item)
+                when (item) {
+                    is RecordItem.History -> db.browserDao().deleteHistory(item.record)
+                    is RecordItem.Bookmark -> db.browserDao().deleteBookmark(item.record)
                 }
                 loadData()
             }
             dialog.dismiss()
         }
-        
+
         dialog.setContentView(view)
         dialog.window?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.setBackgroundResource(android.R.color.transparent)
         dialog.show()

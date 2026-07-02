@@ -18,8 +18,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.view.GestureDetector
-import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -71,6 +69,14 @@ class BrowserActivity : AppCompatActivity() {
     private fun getActiveWebView(): WebView? = getActiveTab()?.webView
 
     private lateinit var urlRouter: BrowserUrlRouter
+
+    private val recordsLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.getStringExtra("url")?.let { url -> openUrl(url) }
+        }
+    }
 
     private lateinit var homeLayer: View
     private lateinit var bottomBar: View
@@ -141,13 +147,37 @@ class BrowserActivity : AppCompatActivity() {
     private var bottomBarBounceAnimator: android.animation.ValueAnimator? = null
     private var systemNavBarHeight = 0
     private var systemKeyboardHeight = 0
-    private val bottomBarBaseY: Float get() = -maxOf(systemNavBarHeight, systemKeyboardHeight).toFloat()
+    private var barRestY = 0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         browserSettings = BrowserSettings(this)
-        adBlockEngine = AdBlockEngine(this)
+        adBlockEngine = AdBlockEngine.getInstance(this)
         viewModel = ViewModelProvider(this)[BrowserViewModel::class.java]
+
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val currentMode = viewModel.uiMode.value
+                val wv = getActiveWebView()
+
+                if (currentMode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM ||
+                    currentMode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
+                    requestExitFullscreen()
+                } else if (currentMode == BrowserViewModel.UiMode.HOME) {
+                    if (wv != null && wv.url != null && wv.url != "about:blank") {
+                        viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
+                        urlInput.setText(wv.url)
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                } else if (wv?.canGoBack() == true) {
+                    wv.goBack()
+                } else {
+                    enterHomeMode(clearCurrentPage = false)
+                }
+            }
+        })
 
         val defaultBg = Color.parseColor("#F2F2F7")
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(defaultBg))
@@ -166,7 +196,7 @@ class BrowserActivity : AppCompatActivity() {
         bindViews()
 
         // 处理 insets：WebView/Home 留出状态栏/导航栏空间，底栏上移避开导航栏和键盘
-        rootContainer.setOnApplyWindowInsetsListener { v, insets ->
+        rootContainer.setOnApplyWindowInsetsListener { _, insets ->
             val navBarHeight = if (Build.VERSION.SDK_INT >= 30) {
                 insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
             } else {
@@ -185,15 +215,20 @@ class BrowserActivity : AppCompatActivity() {
                 @Suppress("DEPRECATION")
                 if (insets.systemWindowInsetBottom > navBarHeight) insets.systemWindowInsetBottom - navBarHeight else 0
             }
+            
             systemNavBarHeight = navBarHeight
             systemKeyboardHeight = imeHeight
-            webViewContainer.setPadding(0, statusBarHeight, 0, navBarHeight + imeHeight)
-            // homeLayer 保留 XML 中自带的 padding，不覆盖
+            
+            // WebView 容器底部留出导航栏或键盘中较高的那个
+            webViewContainer.setPadding(0, statusBarHeight, 0, maxOf(navBarHeight, imeHeight))
 
-            // 底栏上移避开导航栏和键盘
-            bottomBar.translationY = bottomBarBaseY
-            bottomBarDragUnderlay.translationY = bottomBarBaseY
-            bottomBarGestureHotArea.translationY = bottomBarBaseY
+            // 更新底栏静止时的 Y 坐标（相对于屏幕底部的偏移）
+            barRestY = -maxOf(navBarHeight, imeHeight).toFloat()
+            
+            // 如果不在拖拽且不在执行回弹动画，则跟随 Insets 更新位置
+            if (!barDragging && bottomBarBounceAnimator == null) {
+                setBarPosition(0f, barRestY)
+            }
 
             insets
         }
@@ -302,32 +337,132 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
     
+    private fun setBarPosition(x: Float, y: Float) {
+        bottomBarGestureHotArea.translationX = x
+        bottomBarGestureHotArea.translationY = y
+
+        // 处理背景延展：当底栏向上移动时，拉伸 Underlay 填满下方间隙
+        val barHeightPx = dp(72).toFloat()
+        // 获取当前底栏相对于其“休息位置”的上浮高度
+        val pullUp = (barRestY - y).coerceAtLeast(0f)
+
+        if (pullUp > 0) {
+            bottomBarDragUnderlay.pivotY = 0f
+            bottomBarDragUnderlay.scaleY = (barHeightPx + pullUp) / barHeightPx
+        } else {
+            bottomBarDragUnderlay.scaleY = 1f
+        }
+    }
+
     private fun cancelBottomBarBounce() {
-        bottomBarBounceAnimator?.cancel()
-        bottomBarBounceAnimator = null
-        bottomBar.translationX = 0f
-        bottomBar.translationY = bottomBarBaseY
-        bottomBarDragUnderlay.translationX = 0f
-        bottomBarDragUnderlay.translationY = bottomBarBaseY
-        bottomBarDragUnderlay.scaleY = 1f
-        barDragging = false
-        barGestureType = BarGestureType.NONE
+        bottomBarBounceAnimator?.let {
+            bottomBarBounceAnimator = null
+            it.cancel()
+        }
+    }
+
+    private var barDownX = 0f
+    private var barDownY = 0f
+    private var barDownTime = 0L
+    private var barDragging = false
+    private var barGestureType = BarGestureType.NONE
+    private var barStartRestY = 0f
+
+    private enum class BarGestureType {
+        NONE, HORIZONTAL_NAV, PULL_REFRESH
+    }
+
+    private fun rubberBand(value: Float, limit: Float): Float {
+        val sign = if (value >= 0f) 1f else -1f
+        val abs = kotlin.math.abs(value)
+        return sign * (limit * abs / (abs + limit))
+    }
+
+    companion object {
+        private const val BAR_GESTURE_START_SLOP = 30f
+        private const val BAR_NAV_TRIGGER = 160f
+        private const val BAR_REFRESH_TRIGGER = 120f
+        private const val BAR_HORIZONTAL_ELASTIC_LIMIT = 220f
+        private const val BAR_VERTICAL_ELASTIC_LIMIT = 170f
+    }
+
+
+    private fun focusUrlInput() {
+        urlInput.requestFocus()
+        urlInput.setSelection(urlInput.text?.length ?: 0)
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.showSoftInput(urlInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun bounceBottomBar(fromX: Float, fromY: Float) {
+        cancelBottomBarBounce()
+
+        val targetX = 0f
+        val targetY = barRestY
+
+        if (fromX == 0f && fromY == targetY) {
+            setBarPosition(0f, targetY)
+            barDragging = false
+            barGestureType = BarGestureType.NONE
+            bottomGestureHint.visibility = View.GONE
+            return
+        }
+
+        val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 200 // 稍微增加时长，让回弹更平滑
+            interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+
+            var curTargetY = targetY
+
+            addUpdateListener { anim ->
+                // 如果休息位置变化（如键盘收起），立即跳到新位置
+                if (barRestY != curTargetY) {
+                    curTargetY = barRestY
+                    cancel()
+                    return@addUpdateListener
+                }
+
+                val fraction = anim.animatedValue as Float
+                val remain = 1f - fraction
+
+                val x = fromX * remain
+                val y = fromY + (curTargetY - fromY) * fraction
+                setBarPosition(x, y)
+            }
+
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (bottomBarBounceAnimator !== animation) return
+
+                    setBarPosition(0f, barRestY)
+                    barDragging = false
+                    barGestureType = BarGestureType.NONE
+                    bottomGestureHint.visibility = View.GONE
+                    bottomBarBounceAnimator = null
+                }
+
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    if (bottomBarBounceAnimator === animation) {
+                        bottomBarBounceAnimator = null
+                    }
+                }
+            })
+        }
+
+        bottomBarBounceAnimator = animator
+        animator.start()
     }
 
     private fun handleBottomBarGestureDown(event: MotionEvent) {
         cancelBottomBarBounce()
-
         barDownX = event.rawX
         barDownY = event.rawY
         barDownTime = System.currentTimeMillis()
         barDragging = false
         barGestureType = BarGestureType.NONE
-
-        bottomBar.animate().cancel()
-        bottomBar.translationX = 0f
-        bottomBar.translationY = bottomBarBaseY
-        bottomBarDragUnderlay.translationX = 0f
-        bottomBarDragUnderlay.translationY = bottomBarBaseY
+        // 关键：以当前容器位置作为拖拽起点
+        barStartRestY = bottomBarGestureHotArea.translationY
+        bottomBarGestureHotArea.animate().cancel()
         bottomBarDragUnderlay.scaleY = 1f
     }
 
@@ -342,14 +477,12 @@ class BrowserActivity : AppCompatActivity() {
                 handleBottomBarGestureDown(event)
                 false
             }
-
             MotionEvent.ACTION_MOVE -> {
-                val dx = event.rawX - barDownX
-                val dy = event.rawY - barDownY
-                val absDx = kotlin.math.abs(dx)
-                val absDy = kotlin.math.abs(dy)
-
                 if (!barDragging) {
+                    val dx = event.rawX - barDownX
+                    val dy = event.rawY - barDownY
+                    val absDx = kotlin.math.abs(dx)
+                    val absDy = kotlin.math.abs(dy)
                     when {
                         absDx > BAR_GESTURE_START_SLOP && absDx > absDy * 1.45f -> {
                             barDragging = true
@@ -357,7 +490,6 @@ class BrowserActivity : AppCompatActivity() {
                             host.parent?.requestDisallowInterceptTouchEvent(true)
                             hideKeyboardAndClearFocus()
                         }
-
                         -dy > BAR_GESTURE_START_SLOP && absDy > absDx * 1.45f -> {
                             barDragging = true
                             barGestureType = BarGestureType.PULL_REFRESH
@@ -366,10 +498,8 @@ class BrowserActivity : AppCompatActivity() {
                         }
                     }
                 }
-
                 barDragging
             }
-
             else -> false
         }
     }
@@ -381,9 +511,7 @@ class BrowserActivity : AppCompatActivity() {
         val wv = getActiveWebView()
 
         return when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                false
-            }
+            MotionEvent.ACTION_DOWN -> false
 
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - barDownX
@@ -392,26 +520,14 @@ class BrowserActivity : AppCompatActivity() {
                 when (barGestureType) {
                     BarGestureType.HORIZONTAL_NAV -> {
                         val drag = rubberBand(dx, BAR_HORIZONTAL_ELASTIC_LIMIT)
-                        bottomBar.translationX = drag
-                        bottomBar.translationY = bottomBarBaseY
-                        // underlay 不跟随横移，保持原位覆盖空缺
-                        bottomBarDragUnderlay.translationX = 0f
-                        bottomBarDragUnderlay.translationY = bottomBarBaseY
-                        bottomBarDragUnderlay.scaleY = 1f
+                        setBarPosition(drag, barStartRestY)
                     }
-
                     BarGestureType.PULL_REFRESH -> {
                         val pull = rubberBand(-dy, BAR_VERTICAL_ELASTIC_LIMIT).coerceAtLeast(0f)
-                        bottomBar.translationY = bottomBarBaseY - pull
-                        bottomBar.translationX = 0f
-                        bottomBarDragUnderlay.translationX = 0f
-                        bottomBarDragUnderlay.translationY = bottomBarBaseY
-                        updateBottomBarUnderlayPull(pull)
+                        setBarPosition(0f, barStartRestY - pull)
                     }
-
                     else -> Unit
                 }
-
                 true
             }
 
@@ -419,81 +535,59 @@ class BrowserActivity : AppCompatActivity() {
                 val dx = event.rawX - barDownX
                 val dy = event.rawY - barDownY
                 val dt = System.currentTimeMillis() - barDownTime
+                val curX = bottomBarGestureHotArea.translationX
+                val curY = bottomBarGestureHotArea.translationY
 
                 if (!barDragging) {
-                    bounceBottomBar(0f, bottomBarBaseY)
-
-                    if (
-                        focusOnTap &&
-                        dt < 220 &&
-                        kotlin.math.abs(dx) < 12f &&
-                        kotlin.math.abs(dy) < 12f
-                    ) {
+                    bounceBottomBar(0f, barStartRestY)
+                    if (focusOnTap && dt < 220 &&
+                        kotlin.math.abs(dx) < 12f && kotlin.math.abs(dy) < 12f) {
                         focusUrlInput()
                     }
-
                     true
                 } else {
                     when (barGestureType) {
                         BarGestureType.HORIZONTAL_NAV -> {
                             when {
-                                // 首页右滑 → 无操作（已在栈底）
                                 dx > BAR_NAV_TRIGGER && viewModel.uiMode.value == BrowserViewModel.UiMode.HOME -> {
-                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                    bounceBottomBar(curX, curY)
                                 }
-
-                                // 首页左滑 → 进入网页
                                 dx < -BAR_NAV_TRIGGER && viewModel.uiMode.value == BrowserViewModel.UiMode.HOME -> {
                                     val wvUrl = wv?.url
                                     if (!wvUrl.isNullOrBlank() && wvUrl != "about:blank") {
                                         viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
                                         urlInput.setText(wvUrl)
                                     }
-                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                    bounceBottomBar(curX, curY)
                                 }
-
-                                // 网页右滑 + 有历史 → 后退
                                 dx > BAR_NAV_TRIGGER && wv?.canGoBack() == true -> {
                                     wv.goBack()
-                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                    bounceBottomBar(curX, curY)
                                 }
-
-                                // 网页右滑 + 无历史 → 回到首页
                                 dx > BAR_NAV_TRIGGER && wv?.canGoBack() != true -> {
                                     enterHomeMode(clearCurrentPage = false)
-                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                    bounceBottomBar(curX, curY)
                                 }
-
-                                // 网页左滑 + 有前进 → 前进
                                 dx < -BAR_NAV_TRIGGER && wv?.canGoForward() == true -> {
                                     wv.goForward()
-                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                    bounceBottomBar(curX, curY)
                                 }
-
-                                else -> {
-                                    bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
-                                }
+                                else -> bounceBottomBar(curX, curY)
                             }
                         }
-
                         BarGestureType.PULL_REFRESH -> {
                             if (-dy > BAR_REFRESH_TRIGGER) {
                                 wv?.reload()
-                                bounceBottomBar(0f, bottomBar.translationY)
+                                bounceBottomBar(0f, curY)
                             } else {
-                                bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
+                                bounceBottomBar(curX, curY)
                             }
                         }
-
-                        else -> {
-                            bounceBottomBar(bottomBar.translationX, bottomBar.translationY)
-                        }
+                        else -> bounceBottomBar(curX, curY)
                     }
-
                     true
                 }
             }
-
             else -> true
         }
     }
@@ -552,15 +646,9 @@ class BrowserActivity : AppCompatActivity() {
                     if (adBlockEngine.shouldBlock(url)) {
                         return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
                     }
-                    
-                    // Fallback to simple rules
-                    val lowerUrl = url.lowercase(java.util.Locale.US)
-                    if (lowerUrl.contains("googleads") || lowerUrl.contains("doubleclick.net") || lowerUrl.contains("adsystem") || lowerUrl.contains("/ad/") || lowerUrl.contains("ad.doubleclick")) {
-                        return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
-                    }
                 }
                 
-                sniffMediaRequest(view, request.url.toString(), request.requestHeaders)
+                sniffMediaRequest(view, request.url.toString())
                 return super.shouldInterceptRequest(view, request)
             }
 
@@ -665,7 +753,7 @@ class BrowserActivity : AppCompatActivity() {
 
     private val MAX_SNIFFED_PER_TAB = 80
 
-    private fun sniffMediaRequest(wv: WebView, rawUrl: String, headers: Map<String, String>) {
+    private fun sniffMediaRequest(wv: WebView, rawUrl: String) {
         val type = classifyMediaUrl(rawUrl) ?: return
 
         runOnUiThread {
@@ -807,119 +895,9 @@ class BrowserActivity : AppCompatActivity() {
         txtHomeLogo.setOnLongClickListener {
             val intent = Intent(this, RecordsActivity::class.java)
             intent.putExtra("show_bookmarks", true)
-            startActivityForResult(intent, 1001)
+            recordsLauncher.launch(intent)
             true
         }
-    }
-
-    private var barDownX = 0f
-    private var barDownY = 0f
-    private var barDownTime = 0L
-    private var barDragging = false
-    private var barGestureType = BarGestureType.NONE
-
-    private enum class BarGestureType {
-        NONE, HORIZONTAL_NAV, PULL_REFRESH
-    }
-
-    private fun rubberBand(value: Float, limit: Float): Float {
-        val sign = if (value >= 0f) 1f else -1f
-        val abs = kotlin.math.abs(value)
-        return sign * (limit * abs / (abs + limit))
-    }
-
-    companion object {
-        private const val BAR_GESTURE_START_SLOP = 30f
-        private const val BAR_NAV_TRIGGER = 160f
-        private const val BAR_REFRESH_TRIGGER = 120f
-        private const val BAR_HORIZONTAL_ELASTIC_LIMIT = 220f
-        private const val BAR_VERTICAL_ELASTIC_LIMIT = 170f
-    }
-
-    private fun resetBottomBarUnderlay() {
-        bottomBarDragUnderlay.translationX = 0f
-        bottomBarDragUnderlay.translationY = bottomBarBaseY
-        bottomBarDragUnderlay.scaleY = 1f
-    }
-
-    private fun updateBottomBarUnderlayPull(pull: Float) {
-        // 使用固定高度 72dp 作为基准，避免 ProgressBar 动态显隐导致的计算偏差
-        val baseHeight = dp(72)
-        bottomBarDragUnderlay.scaleY = (baseHeight + pull.coerceAtLeast(0f)) / baseHeight.toFloat()
-    }
-
-    private fun focusUrlInput() {
-        urlInput.requestFocus()
-        urlInput.setSelection(urlInput.text?.length ?: 0)
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-        imm.showSoftInput(urlInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-    }
-
-    private fun bounceBottomBar(fromX: Float, fromY: Float) {
-        // 只取消动画器，不重置 translation（避免跳帧）
-        bottomBarBounceAnimator?.cancel()
-        bottomBarBounceAnimator = null
-
-        if (fromX == 0f && fromY == bottomBarBaseY) {
-            bottomBar.translationX = 0f
-            bottomBar.translationY = bottomBarBaseY
-            bottomBarDragUnderlay.translationX = 0f
-            bottomBarDragUnderlay.translationY = bottomBarBaseY
-            bottomBarDragUnderlay.scaleY = 1f
-            barDragging = false
-            barGestureType = BarGestureType.NONE
-            bottomGestureHint.visibility = View.GONE
-            return
-        }
-
-        val baseHeight = dp(72).toFloat()
-        val startPull = (-fromY).coerceAtLeast(0f)
-        val startScaleY = (baseHeight + startPull) / baseHeight
-
-        val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 120
-            interpolator = android.view.animation.DecelerateInterpolator(1.6f)
-
-            addUpdateListener { anim ->
-                val fraction = anim.animatedValue as Float
-                val remain = 1f - fraction
-
-                bottomBar.translationX = fromX * remain
-                bottomBar.translationY = fromY + (bottomBarBaseY - fromY) * fraction
-                // underlay 始终不横移，保持覆盖底栏空缺
-
-                if (startScaleY > 1f) {
-                    bottomBarDragUnderlay.scaleY = 1f + (startScaleY - 1f) * remain
-                } else {
-                    bottomBarDragUnderlay.scaleY = 1f
-                }
-            }
-
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    if (bottomBarBounceAnimator !== animation) return
-
-                    bottomBar.translationX = 0f
-                    bottomBar.translationY = bottomBarBaseY
-                    bottomBarDragUnderlay.translationX = 0f
-                    bottomBarDragUnderlay.translationY = bottomBarBaseY
-                    bottomBarDragUnderlay.scaleY = 1f
-                    barDragging = false
-                    barGestureType = BarGestureType.NONE
-                    bottomGestureHint.visibility = View.GONE
-                    bottomBarBounceAnimator = null
-                }
-
-                override fun onAnimationCancel(animation: android.animation.Animator) {
-                    if (bottomBarBounceAnimator === animation) {
-                        bottomBarBounceAnimator = null
-                    }
-                }
-            })
-        }
-
-        bottomBarBounceAnimator = animator
-        animator.start()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -963,11 +941,8 @@ class BrowserActivity : AppCompatActivity() {
         }
         btnTool.setOnClickListener { showToolMenu() }
 
-        val bottomBarGestureWrapper = findViewById<GestureInterceptLayout>(R.id.bottomBarGestureWrapper)
-        installBottomGesture(bottomBarGestureWrapper, focusOnTap = true)
-        
         bottomBarGestureHotArea.passThroughTap = true
-        installBottomGesture(bottomBarGestureHotArea, focusOnTap = false)
+        installBottomGesture(bottomBarGestureHotArea, focusOnTap = true)
 
         // 状态栏区域点击回到顶部：通过 WebView 的 onTouch 检测顶部点击
         // statusBarClickArea 已设为 clickable=false，触摸事件会穿透到 WebView
@@ -1105,8 +1080,6 @@ class BrowserActivity : AppCompatActivity() {
                     isHorizontalSeeking = false
                     isVerticalAdjust = false
 
-                    eval("NativeVideo.getState()")
-
                     longPressRunnable = Runnable {
                         longPressTriggered = true
                         oldRate = currentRate
@@ -1163,8 +1136,6 @@ class BrowserActivity : AppCompatActivity() {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     longPressRunnable?.let { handler.removeCallbacks(it) }
 
-                    val dx = event.x - downX
-                    val dy = event.y - downY
                     val dt = System.currentTimeMillis() - downTime
 
                     if (longPressTriggered) {
@@ -1501,13 +1472,13 @@ class BrowserActivity : AppCompatActivity() {
         }
         view.findViewById<View>(R.id.tool_history)?.setOnClickListener {
             val intent = android.content.Intent(this, RecordsActivity::class.java)
-            startActivityForResult(intent, 1001)
+            recordsLauncher.launch(intent)
             dialog.dismiss()
         }
         view.findViewById<View>(R.id.tool_bookmark)?.setOnClickListener {
             val intent = android.content.Intent(this, RecordsActivity::class.java)
             intent.putExtra("show_bookmarks", true)
-            startActivityForResult(intent, 1001)
+            recordsLauncher.launch(intent)
             dialog.dismiss()
         }
         view.findViewById<View>(R.id.tool_add_bookmark)?.setOnClickListener {
@@ -1661,6 +1632,12 @@ class BrowserActivity : AppCompatActivity() {
         val isPseudoFull = mode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO
         val isAnyFull = isCustomFull || isPseudoFull
 
+        cancelBottomBarBounce()
+        if (!barDragging) {
+            setBarPosition(0f, barRestY)
+            bottomBarDragUnderlay.scaleY = 1f
+        }
+
         val transition = android.transition.AutoTransition().apply {
             duration = 300
             interpolator = android.view.animation.DecelerateInterpolator()
@@ -1686,12 +1663,6 @@ class BrowserActivity : AppCompatActivity() {
         fullscreenControls.visibility = if (isAnyFull) View.VISIBLE else View.GONE
 
         if (isAnyFull) {
-            resetBottomBarUnderlay()
-            bottomBar.translationX = 0f
-            bottomBar.translationY = bottomBarBaseY
-            bottomBarDragUnderlay.translationX = 0f
-            bottomBarDragUnderlay.translationY = bottomBarBaseY
-            // 初始化亮度/音量指示器
             val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
             val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -1707,13 +1678,6 @@ class BrowserActivity : AppCompatActivity() {
             hideSystemBars()
             bringVideoLayersToFront()
         } else {
-            bottomBar.translationX = 0f
-            bottomBar.translationY = bottomBarBaseY
-            bottomBarDragUnderlay.translationX = 0f
-            bottomBarDragUnderlay.translationY = bottomBarBaseY
-            bottomBarDragUnderlay.scaleY = 1f
-            bottomBar.visibility = View.VISIBLE
-            bottomBarDragUnderlay.visibility = View.VISIBLE
             brightnessIndicator.visibility = View.GONE
             volumeIndicator.visibility = View.GONE
             showSystemBars()
@@ -2185,7 +2149,7 @@ class BrowserActivity : AppCompatActivity() {
                         ?.firstOrNull { it.type == CandidateType.DOM_VIDEO }
 
                     if (replacement?.videoId != null) {
-                        tryEnterDomVideoById(replacement.videoId!!) { retryOk ->
+                        tryEnterDomVideoById(replacement.videoId) { retryOk ->
                             if (!retryOk) {
                                 Toast.makeText(this, "视频对象已失效，请重新点击网页播放", Toast.LENGTH_SHORT).show()
                             }
@@ -2265,7 +2229,7 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun openIframeCandidate(candidate: VideoCandidate) {
         val iframeSrc = candidate.frameSrc ?: return
-        val parentUrl = candidate.pageUrl ?: getActiveWebView()?.url ?: return
+        if (candidate.pageUrl == null && getActiveWebView()?.url == null) return
 
         playerSourceMode = PlayerSourceMode.IFRAME_TOP_PAGE
         
@@ -2362,35 +2326,10 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        val currentMode = viewModel.uiMode.value
-        val wv = getActiveWebView()
-
-        if (currentMode == BrowserViewModel.UiMode.FULLSCREEN_CUSTOM || 
-            currentMode == BrowserViewModel.UiMode.FULLSCREEN_PSEUDO) {
-            requestExitFullscreen()
-        }
-        else if (currentMode == BrowserViewModel.UiMode.HOME) {
-            // 如果在主页模式，但 WebView 实际上加载了网页（只是被遮住了），则切回网页模式
-            if (wv != null && wv.url != null && wv.url != "about:blank") {
-                viewModel.setUiMode(BrowserViewModel.UiMode.WEB)
-                urlInput.setText(wv.url)
-            } else {
-                super.onBackPressed()
-            }
-        }
-        else if (wv?.canGoBack() == true) {
-            wv.goBack()
-        }
-        else {
-            enterHomeMode(clearCurrentPage = false)
-        }
-    }
-
     inner class VideoBridge(private val wv: WebView) {
         
         @JavascriptInterface
-        fun onVideoDetected(title: String, videoId: String, paused: Boolean, curr: Double, dur: Double) {
+        fun onVideoDetected(@Suppress("UNUSED_PARAMETER") title: String, videoId: String, paused: Boolean, curr: Double, dur: Double) {
             val safeId = sanitizeBridgeString(videoId)
             
             runOnUiThread {
@@ -2587,16 +2526,6 @@ class BrowserActivity : AppCompatActivity() {
             CookieManager.getInstance().removeAllCookies(null)
             prefs.edit().remove("pending_clear_cookie").apply()
             Toast.makeText(this, "Cookie 已清除", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 1001 && resultCode == Activity.RESULT_OK) {
-            data?.getStringExtra("url")?.let { url ->
-                openUrl(url)
-            }
         }
     }
 
